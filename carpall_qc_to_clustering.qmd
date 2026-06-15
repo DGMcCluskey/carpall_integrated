@@ -45,7 +45,7 @@ thresholds = {
     "pct_counts_ribo": [40],
     "pct_counts_hb": [5],
     "n_genes_by_counts": [200,5000],
-    "total_counts" : [10000]
+    "total_counts" : [100,10000]
 }
 
 for ax, var in zip(axes, vars_):
@@ -79,4 +79,75 @@ fig.savefig(
 )
 
 plt.close(fig)
+```
+
+```{python}
+cell_counts = (
+    carpall_one.obs["Patient"]
+    .value_counts()
+    .reset_index()
+)
+
+cell_counts.columns = ["Patient", "n_cells"]
+cell_counts
+cell_counts.to_csv("patient_cell_counts_pre_qc.csv")
+```
+
+```{python}
+ax = cell_counts.plot(kind="bar", figsize=(10, 4))
+
+ax.set_xlabel("Patient")
+ax.set_ylabel("Number of cells")
+ax.set_title("Cells per Patient")
+
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+carpall_one = carpall_one[(carpall_one.obs['pct_counts_mt'] < 25) & 
+    (carpall_one.obs['pct_counts_ribo'] < 40) &
+    (carpall_one.obs['pct_counts_hb'] < 10) &
+    (carpall_one.obs['total_counts'] > 100) & 
+    (carpall_one.obs['total_counts'] < 10000) & 
+    (carpall_one.obs['n_genes_by_counts'] > 200) & 
+    (carpall_one.obs['n_genes_by_counts'] < 5000), :]
+```
+
+```{python}
+cell_counts = (
+    carpall_one.obs["Patient"]
+    .value_counts()
+    .reset_index()
+)
+
+cell_counts.columns = ["Patient", "n_cells"]
+cell_counts
+cell_counts.to_csv("patient_cell_counts_post_qc.csv")
+```
+
+```{python}
+pre = pd.read_csv("patient_cell_counts_pre_qc.csv")
+pre = pre.rename(columns = {"n_cells": "counts_pre"})
+post = pd.read_csv("patient_cell_counts_post_qc.csv")
+post = post.rename(columns = {"n_cells": "counts_post"})
+cell_counts = pd.merge(pre, post, how = "inner")
+cell_counts = cell_counts.drop(columns = "Unnamed: 0")
+cell_counts = pd.melt(cell_counts, id_vars=["Patient"], var_name="qc_stage", value_name="n_cells")
+```
+
+```{python}
+ax = sns.barplot(
+    data=cell_counts,
+    x="Patient",
+    y="n_cells",
+    hue="qc_stage"
+)
+
+ax.set_xlabel("Patient")
+ax.set_ylabel("Number of cells")
+ax.set_title("Cells per Patient")
+
+plt.tight_layout()
+plt.show()
 ```
