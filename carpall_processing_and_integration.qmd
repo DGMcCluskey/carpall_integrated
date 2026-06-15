@@ -31,15 +31,51 @@ file_names = [f for f in file_names if "vdj" not in f]
 ```{python}
 adatas = []
 
+base_dir = "/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq data - CARPALL/"
+
 for folder in file_names:
-    path = os.path.join("/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq data - CARPALL/",folder, "filtered_feature_bc_matrix.h5")
-    adata = sc.read_10x_h5(path)
+
+    sample_dir = os.path.join(base_dir, folder)
+
+    raw_path = os.path.join(sample_dir, "filtered_feature_bc_matrix.h5")
+    soupx_path = os.path.join(sample_dir, "soupx_corrected")
+
+    print(f"\nProcessing {folder}")
+
+    # --- 1. Always load RAW counts ---
+    adata = sc.read_10x_h5(raw_path)
     adata.var_names_make_unique()
+
     sample_id = os.path.basename(folder)
     adata.obs_names = [f"{sample_id}_{bc}" for bc in adata.obs_names]
     adata.obs["file_id"] = sample_id
-    
-    adatas.append(adata)
+
+    # store raw counts
+    adata.layers["raw_counts"] = adata.X.copy()
+
+    soupx_applied = False
+
+    if os.path.exists(soupx_path):
+        try:
+            adata_soupx = sc.read_10x_h5(soupx_path)
+            adata_soupx.var_names_make_unique()
+
+            if adata_soupx.shape == adata.shape:
+                adata.layers["soupx_counts"] = adata_soupx.X.copy()
+                soupx_applied = True
+                print(f"{folder}: SoupX added")
+            else:
+                print(f"{folder}: shape mismatch — using raw instead")
+
+        except Exception as e:
+            print(f"{folder}: SoupX failed ({e})")
+
+    if "soupx_counts" not in adata.layers:
+        adata.layers["soupx_counts"] = adata.layers["raw_counts"].copy()
+
+adata.obs["soupx_applied"] = soupx_applied
+
+adatas.append(adata)
 ```
 
 # combine into one adata
@@ -69,6 +105,18 @@ carpall.obs = (
     .set_index("index")
 )
 carpall.obs
+corrected = carpall.layers["soupx_counts"]
+raw = carpall.layers["raw_counts"]
+print("corrected mean:", corrected.sum() / (corrected.shape[0] * corrected.shape[1]))
+print("raw mean:", raw.sum() / (raw.shape[0] * raw.shape[1]))
+```
+
+```{python}
+carpall.X = carpall.layers["soupx_counts"]
+```
+
+```{python}
+carpall_blina.write("1_carpall_soupx_corrected.h5ad")
 ```
 
 # load in blina metadata
