@@ -12,7 +12,7 @@ import os
 
 # load in carpall meta
 ```{python}
-carpall_meta = pd.read_csv("/Users/rmhadgm/OneDrive - University College London/Ghorashian_group/carpall_blina_integrated/carpall_metadata_organised.csv")
+carpall_meta = pd.read_csv("/Users/rmhadgm/OneDrive - University College London/Ghorashian_group/carpall_integration/carpall_metadata_organised.csv")
 carpall_meta = carpall_meta.drop(columns=["Unnamed: 0"])
 ```
 
@@ -71,9 +71,9 @@ for folder in file_names:
     if "soupx_counts" not in adata.layers:
         adata.layers["soupx_counts"] = adata.layers["raw_counts"].copy()
 
-adata.obs["soupx_applied"] = soupx_applied
+    adata.obs["soupx_applied"] = soupx_applied
 
-adatas.append(adata)
+    adatas.append(adata)
 ```
 
 # combine into one adata
@@ -114,7 +114,7 @@ carpall.X = carpall.layers["soupx_counts"]
 ```
 
 ```{python}
-carpall_blina.write("1_carpall_soupx_corrected.h5ad")
+carpall.write("1_carpall_soupx_corrected.h5ad")
 ```
 
 # load in blina metadata

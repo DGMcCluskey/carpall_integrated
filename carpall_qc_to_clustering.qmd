@@ -15,40 +15,68 @@ import matplotlib.pyplot as plt
 ```
 
 ```{python}
-carpall_blina = sc.read("1_carpall_blina_pre_qc.h5ad")
+carpall_one = sc.read("1_carpall_soupx_corrected.h5ad")
 ```
 
 # identify mito, ribo and hb genes
 ```{python}
-carpall_blina.var["mt"] = carpall_blina.var_names.str.startswith("MT-")
-carpall_blina.var["ribo"] = carpall_blina.var_names.str.startswith(("RPS", "RPL"))
-carpall_blina.var["hb"] = carpall_blina.var_names.str.contains(r"^HB[ABDEGMQZ]\d*(?!\w)")
+carpall_one.var["mt"] = carpall_one.var_names.str.startswith("MT-")
+carpall_one.var["ribo"] = carpall_one.var_names.str.startswith(("RPS", "RPL"))
+carpall_one.var["hb"] = carpall_one.var_names.str.contains(r"^HB[ABDEGMQZ]\d*(?!\w)")
 ```
 
 ```{python}
 sc.pp.calculate_qc_metrics(
-    carpall_blina, qc_vars=["mt", "ribo", "hb"], inplace=True, percent_top=[20], log1p=True
+    carpall_one, qc_vars=["mt", "ribo", "hb"], inplace=True, percent_top=[20], log1p=True
 )
-carpall_blina
+carpall_one
 ```
 
 ```{python}
-axes = sc.pl.violin(
-    carpall_blina,
-    ["pct_counts_mt", "pct_counts_ribo", "pct_counts_hb"],
-    groupby="study",
-    stripplot=False,
-    show=False
+fig, axes = plt.subplots(
+    nrows=5,
+    ncols=1,
+    figsize=(10, 12)
 )
 
-for ax in axes:
+vars_ = ["pct_counts_mt", "pct_counts_ribo", "pct_counts_hb", "n_genes_by_counts", "total_counts"]
+thresholds = {
+    "pct_counts_mt": [25],
+    "pct_counts_ribo": [40],
+    "pct_counts_hb": [5],
+    "n_genes_by_counts": [200,5000],
+    "total_counts" : [10000]
+}
+
+for ax, var in zip(axes, vars_):
+
+    sc.pl.violin(
+        carpall_one,
+        keys=var,
+        groupby="Patient",
+        stripplot=False,
+        ax=ax,
+        show=False
+    )
+
+    if var in thresholds:
+        for t in thresholds[var]:
+            ax.axhline(
+                y=t,
+                linestyle="--",
+                linewidth=1,
+                color="red"
+            )
+
     ax.grid(False)
 
-fig = axes[0].get_figure()
+plt.tight_layout()
 
-fig.set_size_inches(7, 3)
-fig.subplots_adjust(wspace=0.6)
+fig.savefig(
+    "pre_qc_violins.png",
+    dpi=300,
+    bbox_inches="tight"
+)
 
-fig.savefig("pre_qc_violins.png", dpi=300, bbox_inches="tight")
 plt.close(fig)
 ```
