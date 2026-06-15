@@ -1,0 +1,48 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{r}
+library(SoupX)
+library(Seurat)
+library(DropletUtils)
+```
+
+```{r}
+files <- list.files("/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq data - CARPALL/")
+files <- files[c(19:115)]
+files
+soup_out <- list()
+```
+
+```{r}
+for (i in files) {
+    cat("\nProcessing:", i, "\n")
+    tryCatch({
+        sc <- load10X(
+            paste0(
+                "/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq data - CARPALL/",
+                i
+            )
+        )
+        sc <- autoEstCont(sc, tfidfMin = 0.5)
+        out <- adjustCounts(sc)
+        soup_out[[i]] <- out
+        write10xCounts(
+            file.path(
+                "/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq data - CARPALL/",
+                i,
+                "soupx_corrected"
+            ),
+            out,
+            overwrite = TRUE,
+            type = "HDF5"
+        )
+        cat("Completed:", i, "\n")
+    }, error = function(e) {
+        cat("Failed:", i, "\n")
+        cat("  Reason:", conditionMessage(e), "\n")
+    })
+}
+```
