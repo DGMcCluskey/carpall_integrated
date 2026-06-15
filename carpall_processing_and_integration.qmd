@@ -2,8 +2,6 @@
 title: "Untitled"
 format: html
 ---
-
-
 ```{python}
 import scanpy as sc
 import numpy as np
