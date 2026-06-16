@@ -12,6 +12,7 @@ import pandas as pd
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt
+import scvi
 ```
 
 ```{python}
@@ -111,7 +112,7 @@ carpall_one = carpall_one[(carpall_one.obs['pct_counts_mt'] < 25) &
     (carpall_one.obs['total_counts'] > 100) & 
     (carpall_one.obs['total_counts'] < 10000) & 
     (carpall_one.obs['n_genes_by_counts'] > 200) & 
-    (carpall_one.obs['n_genes_by_counts'] < 5000), :]
+    (carpall_one.obs['n_genes_by_counts'] < 5000), :].copy()
 ```
 
 ```{python}
@@ -137,17 +138,108 @@ cell_counts = pd.melt(cell_counts, id_vars=["Patient"], var_name="qc_stage", val
 ```
 
 ```{python}
-ax = sns.barplot(
+plt.close("all")
+plt.clf()
+
+fig, ax = plt.subplots(figsize=(6, 4))
+
+sns.barplot(
     data=cell_counts,
     x="Patient",
     y="n_cells",
-    hue="qc_stage"
+    hue="qc_stage",
+    ax=ax
 )
 
-ax.set_xlabel("Patient")
-ax.set_ylabel("Number of cells")
-ax.set_title("Cells per Patient")
-
-plt.tight_layout()
+fig.tight_layout()
+fig.savefig("cell_counts_filtering.png", dpi=300, bbox_inches="tight")
 plt.show()
+```
+
+```{python}
+carpall_one.X = carpall_one.layers['soupx_counts']
+carpall_one.layers['counts'] = carpall_one.X.copy()
+sc.pp.normalize_total(carpall_one, target_sum=1e4)
+sc.pp.log1p(carpall_one)
+carpall_one.layers['logcounts'] = carpall_one.X.copy()
+```
+
+```{python}
+plt.figure()
+sns.histplot(
+        carpall_one.layers['counts'].sum(1), bins=500, kde=False
+    )
+plt.show()
+
+plt.figure()
+sns.histplot(
+        carpall_one.layers['logcounts'].sum(1), bins=500, kde=False
+    )
+plt.show()
+```
+
+```{python}
+carpall_one.obs["batch"] = (
+    carpall_one.obs["file_id"]
+    .str.extract(r"count_(\d+)_CAR")
+)
+```
+
+```{python}
+sc.pp.highly_variable_genes(
+    carpall_one, 
+    n_top_genes=2000, 
+    flavor="cell_ranger", 
+    batch_key='batch', 
+    layer = 'logcounts',
+    subset = False
+)
+```
+
+```{python}
+sc.pp.pca(carpall_one, svd_solver="arpack", use_highly_variable=True)
+plt.figure()
+sc.pl.pca_variance_ratio(carpall_one, n_pcs=50, log=True)
+plt.savefig("Elbow_plot.png", dpi=300)
+```
+
+```{python}
+sc.pp.neighbors(carpall_one, n_pcs=11)
+sc.tl.umap(carpall_one, random_state=2026)
+```
+
+```{python}
+plt.figure(figsize=(20,20))
+sc.pl.umap(carpall_one, color=["batch", "Patient", "Timepoint_bin", "Sort"], 
+wspace=0.5,show=True, size = 2, ncols=2)
+plt.tight_layout()
+plt.savefig("UMAP_uncorrected.png",dpi=300)
+```
+
+```{python}
+carpall_hvg = carpall_one[:, carpall_one.var["highly_variable"]].copy()
+carpall_hvg
+```
+
+```{python}
+scvi.model.SCVI.setup_anndata(carpall_hvg, layer="counts", batch_key="batch")
+carpall_hvg
+model_scvi = scvi.model.SCVI(carpall_hvg)
+model_scvi
+model_scvi.view_anndata_setup()
+```
+
+```{python}
+max_epochs_scvi = np.min([round((20000 / carpall_one.n_obs) * 400), 400])
+max_epochs_scvi
+```
+
+```{python}
+model_scvi.train(accelerator="mps")
+```
+
+```{python}
+carpall_one.obsm["X_scVI"] = model_scvi.get_latent_representation()
+sc.pp.neighbors(carpall_one, use_rep="X_scVI")
+sc.tl.umap(carpall_one)
 ```
