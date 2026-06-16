@@ -288,8 +288,8 @@ sc.tl.leiden(carpall_one)
 
 ```{python}
 fig = sc.pl.umap(carpall_one, color=["batch", "Patient"], 
-wspace=1,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
-fig.set_size_inches(15, 4)
+wspace=0.5,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(14, 6)
 print(fig.get_size_inches())
 fig.savefig("umap_harmony.png", dpi=300, bbox_inches="tight")
 plt.close
@@ -304,10 +304,24 @@ carpall_one.obs["patient_timepoint"] = (
 ```
 
 ```{python}
+order = ["Product", "Early", "Mid", "Late"]
+carpall_one.obs["Timepoint_bin"] = pd.Categorical(
+    carpall_one.obs["Timepoint_bin"],
+    categories=order,
+    ordered=True
+)
+```
+
+```{python}
 fig = sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort", "Source"], 
 wspace=1,show=False, size = 2, ncols=3,frameon = False, return_fig = True)
-fig.set_size_inches(10, 4)
+fig.set_size_inches(9, 3)
 print(fig.get_size_inches())
 fig.savefig("umap_test.png", dpi=300, bbox_inches="tight")
 plt.close
+```
+
+```{python}
+#carpall_one.write_h5ad("carpall_one_clustered.h5ad")
+carpall_one = sc.read_h5ad("carpall_one_clustered.h5ad")
 ```
