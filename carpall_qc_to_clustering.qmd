@@ -12,7 +12,8 @@ import pandas as pd
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt
-import scvi
+#import scvi
+#import harmonypy as hm
 ```
 
 ```{python}
@@ -242,4 +243,71 @@ model_scvi.train(accelerator="mps")
 carpall_one.obsm["X_scVI"] = model_scvi.get_latent_representation()
 sc.pp.neighbors(carpall_one, use_rep="X_scVI")
 sc.tl.umap(carpall_one)
+```
+
+```{python}
+plt.figure(figsize=(10,10))
+sc.pl.umap(carpall_one, color=["batch", "Patient"],
+wspace=0.5,show=True, size = 2, ncols=2)
+plt.savefig("UMAP_scvi.png",dpi=300)
+```
+
+```{python}
+plt.figure(figsize=(10,10))
+sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort" "Source", "soupx_applied"], basis = "X_scvi", 
+wspace=0.5,show=True, size = 2, ncols=2)
+plt.savefig("UMAP_metcarpall_one.png",dpi=300)
+```
+
+# trying harmony instead
+```{python}
+pcs = carpall_one.obsm["X_pca"]
+print(pcs.shape)
+```
+
+```{python}
+batch_patient_structure = pd.crosstab(
+    carpall_one.obs["batch"],
+    carpall_one.obs["patient_timepoint"]
+)
+```
+
+```{python}
+harmony_out = hm.run_harmony(pcs, carpall_one.obs, "batch")
+```
+
+```{python}
+# Store corrected PCs back in the AnnData object
+carpall_one.obsm['X_pca_harmony'] = harmony_out.Z_corr
+
+# Use harmonized PCs for downstream analysis
+sc.pp.neighbors(carpall_one, use_rep='X_pca_harmony')
+sc.tl.umap(carpall_one)
+sc.tl.leiden(carpall_one)
+```
+
+```{python}
+fig = sc.pl.umap(carpall_one, color=["batch", "Patient"], 
+wspace=1,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(15, 4)
+print(fig.get_size_inches())
+fig.savefig("umap_harmony.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+carpall_one.obs["patient_timepoint"] = (
+    carpall_one.obs["Patient"].astype(str)
+    + "_"
+    + carpall_one.obs["Timepoint_bin"].astype(str)
+)
+```
+
+```{python}
+fig = sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort", "Source"], 
+wspace=1,show=False, size = 2, ncols=3,frameon = False, return_fig = True)
+fig.set_size_inches(10, 4)
+print(fig.get_size_inches())
+fig.savefig("umap_test.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
