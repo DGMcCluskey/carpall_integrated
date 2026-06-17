@@ -12,8 +12,8 @@ import pandas as pd
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt
-#import scvi
-#import harmonypy as hm
+import scvi
+import harmonypy as hm
 ```
 
 ```{python}
@@ -324,4 +324,9 @@ plt.close
 ```{python}
 #carpall_one.write_h5ad("carpall_one_clustered.h5ad")
 carpall_one = sc.read_h5ad("carpall_one_clustered.h5ad")
+```
+
+
+```{python}
+sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "CD4", "LYZ", "CD14", "FCGR3A", "TRAC"], legend_fontsize="x-large", ncols = 4, frameon = False)
 ```
