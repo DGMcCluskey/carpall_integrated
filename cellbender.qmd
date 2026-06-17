@@ -1,0 +1,73 @@
+---
+title: "Untitled"
+format: html
+---
+
+# ambient rna removal using cellbender
+# note: install cellbender into its own venv to avoid conflicts
+
+
+```{python}
+import os
+import pandas as pd
+import subprocess
+
+carpall_meta = pd.read_csv(
+    "/Users/rmhadgm/OneDrive - University College London/Ghorashian_group/carpall_integration/carpall_metadata_organised.csv"
+).drop(columns=["Unnamed: 0"])
+
+base_dir = "/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq data - CARPALL/"
+
+gex_ids = set(carpall_meta["GEX_id"].astype(str))
+
+file_names = os.listdir(base_dir)
+
+file_names = [
+    f for f in file_names
+    if any(gid in f for gid in gex_ids)
+]
+
+file_names = [
+    f for f in file_names
+    if "cellranger302" not in f
+]
+
+file_names = [
+    f for f in file_names
+    if "vdj" not in f.lower()
+]
+
+for folder in sorted(file_names):
+
+    sample_dir = os.path.join(base_dir, folder)
+
+    input_file = os.path.join(
+        sample_dir,
+        "raw_feature_bc_matrix.h5"
+    )
+
+    output_file = os.path.join(
+        sample_dir,
+        "cellbender_output.h5"
+    )
+
+    if not os.path.exists(input_file):
+        print(f"{folder}: no raw matrix found")
+        continue
+
+    if os.path.exists(output_file):
+        print(f"{folder}: already processed")
+        continue
+
+    print(f"Running CellBender on {folder}")
+
+    subprocess.run(
+        [
+            "/Users/rmhadgm/venvs/cellbender/bin/cellbender",
+            "remove-background",
+            "--input", input_file,
+            "--output", output_file,
+        ],
+        check=True
+    )
+```

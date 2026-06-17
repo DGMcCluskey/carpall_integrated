@@ -326,7 +326,14 @@ plt.close
 carpall_one = sc.read_h5ad("carpall_one_clustered.h5ad")
 ```
 
+```{python}
+pd.crosstab(carpall_one.obs["Sort"], carpall_one.obs["Source"])
+```
 
 ```{python}
-sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "CD4", "LYZ", "CD14", "FCGR3A", "TRAC"], legend_fontsize="x-large", ncols = 4, frameon = False)
+sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "LYZ", "CD14", "FCGR3A", "MZB1", "JCHAIN", "PTPRC", "CSF3R"], legend_fontsize="x-large", size = 1, ncols = 4, frameon = False)
+```
+
+```{python}
+sc.pl.scatter(carpall_one, x = "CD3D", y = "LYZ", size = 1)
 ```
