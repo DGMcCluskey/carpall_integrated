@@ -20,6 +20,11 @@ import harmonypy as hm
 carpall_one = sc.read("2.carpall_doublets_identified.h5ad")
 ```
 
+# ensure X layer is set up properly as sce conversion for previous doublet detection can mess with it
+```{python}
+carpall_one.X = carpall_one.layers["counts"].copy()
+```
+
 # identify mito, ribo and hb genes
 ```{python}
 carpall_one.var["mt"] = carpall_one.var_names.str.startswith("MT-")
@@ -46,7 +51,7 @@ thresholds = {
     "pct_counts_mt": [25],
     "pct_counts_ribo": [50],
     "pct_counts_hb": [5],
-    "n_genes_by_counts": [200,5000],
+    "n_genes_by_counts": [200,4000],
     "total_counts" : [100,10000]
 }
 
@@ -113,7 +118,7 @@ carpall_one = carpall_one[(carpall_one.obs['pct_counts_mt'] < 25) &
     (carpall_one.obs['total_counts'] > 100) & 
     (carpall_one.obs['total_counts'] < 10000) & 
     (carpall_one.obs['n_genes_by_counts'] > 200) & 
-    (carpall_one.obs['n_genes_by_counts'] < 5000), :].copy()
+    (carpall_one.obs['n_genes_by_counts'] < 4000), :].copy()
 ```
 
 ```{python}
@@ -159,9 +164,46 @@ plt.show()
 ```
 
 ```{python}
+cell_counts = (
+    carpall_one.obs[["Patient", "Timepoint_bin"]]
+    .value_counts()
+    .reset_index(name="n_cells")
+)
+
+order = ["Product", "Early", "Mid", "Late"]
+
+plt.close("all")
+plt.clf()
+
+fig, ax = plt.subplots(figsize=(6, 4))
+
+sns.barplot(
+    data=cell_counts,
+    x="Patient",
+    y="n_cells",
+    hue="Timepoint_bin",
+    hue_order=order,
+    ax=ax
+)
+
+fig.tight_layout()
+fig.savefig("cell_counts_patient_time.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+
+```{python}
 sc.pp.normalize_total(carpall_one, target_sum=1e4)
 sc.pp.log1p(carpall_one)
 carpall_one.layers['logcounts'] = carpall_one.X.copy()
+```
+
+```{python}
+carpall_one.obs["cellbender_applied_cat"] = (
+    carpall_one.obs["cellbender_applied"]
+    .map({True: "Yes", False: "No"})
+    .astype("category")
+)
 ```
 
 ```{python}
@@ -204,7 +246,7 @@ plt.savefig("Elbow_plot.png", dpi=300)
 ```
 
 ```{python}
-sc.pp.neighbors(carpall_one, n_pcs=10)
+sc.pp.neighbors(carpall_one, n_pcs=11)
 sc.tl.umap(carpall_one, random_state=2026)
 ```
 
@@ -245,9 +287,12 @@ harmony_out = hm.run_harmony(pcs, carpall_one.obs, "batch")
 ```{python}
 # Store corrected PCs back in the AnnData object
 carpall_one.obsm['X_pca_harmony'] = harmony_out.Z_corr
+sc.pl.pca_variance_ratio(carpall_one, n_pcs=50, log=True)
+```
 
+```{python}
 # Use harmonized PCs for downstream analysis
-sc.pp.neighbors(carpall_one, use_rep='X_pca_harmony')
+sc.pp.neighbors(carpall_one, use_rep='X_pca_harmony', n_pcs=11)
 sc.tl.umap(carpall_one)
 ```
 
@@ -271,17 +316,17 @@ carpall_one.obs["Timepoint_bin"] = pd.Categorical(
 ```
 
 ```{python}
-fig = sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort", "Source", "cellbender_applied"], 
+fig = sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort", "Source", "doublet_class"], 
 wspace=1,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
 fig.set_size_inches(9, 3)
 print(fig.get_size_inches())
-fig.savefig("umap_test.png", dpi=300, bbox_inches="tight")
+fig.savefig("umap_meta.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
 ```{python}
-#carpall_one.write_h5ad("carpall_one_clustered.h5ad")
-carpall_one = sc.read_h5ad("carpall_one_clustered.h5ad")
+#carpall_one.write_h5ad("3_carpall_one_clustered.h5ad")
+carpall_one = sc.read_h5ad("3_carpall_one_clustered.h5ad")
 ```
 
 ```{python}
@@ -289,7 +334,7 @@ pd.crosstab(carpall_one.obs["Sort"], carpall_one.obs["Source"])
 ```
 
 ```{python}
-sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "LYZ", "CD14", "FCGR3A", "MZB1", "JCHAIN", "PTPRC", "NCAM1", "CSF3R", "CD68"], legend_fontsize="x-large", size = 1, ncols = 4, frameon = False)
+sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "LYZ", "CD14", "FCGR3A", "MZB1", "MKI67", "PTPRC", "NCAM1", "CSF3R", "CD68", "LEPR", "FLT1", "SPINK2", "CD34"], legend_fontsize="x-large", size = 1, ncols = 4, frameon = False, cmap = "rocket")
 ```
 
 ```{python}
