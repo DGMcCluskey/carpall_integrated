@@ -17,7 +17,7 @@ import harmonypy as hm
 ```
 
 ```{python}
-carpall_one = sc.read("1_carpall_cellbender_corrected.h5ad")
+carpall_one = sc.read("2.carpall_doublets_identified.h5ad")
 ```
 
 # identify mito, ribo and hb genes
@@ -277,11 +277,6 @@ fig.set_size_inches(9, 3)
 print(fig.get_size_inches())
 fig.savefig("umap_test.png", dpi=300, bbox_inches="tight")
 plt.close
-```
-
-```{python}
-sc.pl.umap(carpall_one, color=["], 
-wspace=1,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
 ```
 
 ```{python}
