@@ -335,5 +335,5 @@ sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "LYZ", "CD14", "FCG
 ```
 
 ```{python}
-sc.pl.scatter(carpall_one, x = "CD3D", y = "LYZ", size = 1)
+sc.pl.scatter(carpall_one, x = "CD3D", y = "LYZ", size = 1, color = "soupx_applied")
 ```

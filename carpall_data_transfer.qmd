@@ -1,0 +1,9 @@
+---
+title: "Untitled"
+format: html
+---
+
+# script to transfer files from the cluster to my machine
+```{bash}
+sync -avh --progress  dmccluskey@10.0.7.5:/home/lab/dmccluskey/CARPALL_h5 ~/carpall_cellbender
+```

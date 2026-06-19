@@ -18,12 +18,23 @@ carpall_meta = carpall_meta.drop(columns=["Unnamed: 0"])
 
 # get list of file names of the carpall samples and then only keep samples that are in paper metadata, don't weren't in the pilot study (which is presumably why they are cellranger 302 rather than 500) and aren't a vdj sampleß
 ```{python}
-file_names = os.listdir("/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq data - CARPALL/")
+file_names = os.listdir("/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq_data_CARPALL/")
 gex_ids = carpall_meta["GEX_id"].astype(str)
 file_names = [f for f in file_names if any(gid in f for gid in gex_ids)]
 file_names = [f for f in file_names if "cellranger302" not in f]
 file_names = [f for f in file_names if "vdj" not in f]
 ```
+
+# save a list of file names for use in cellbender in another script
+```{python}
+cellbender_filenames = [os.path.join(f, "raw_feature_bc_matrix.h5") for f in file_names]
+pd.Series(cellbender_filenames).to_csv(
+    "cellbender_input_filenames.csv",
+    index=False,
+    header=False
+)
+```
+
 
 # load in carpall data, mkaing sure to give cell ids unique names
 ```{python}
