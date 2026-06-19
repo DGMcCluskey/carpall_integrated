@@ -17,7 +17,7 @@ import harmonypy as hm
 ```
 
 ```{python}
-carpall_one = sc.read("1_carpall_soupx_corrected.h5ad")
+carpall_one = sc.read("1_carpall_cellbender_corrected.h5ad")
 ```
 
 # identify mito, ribo and hb genes
@@ -44,7 +44,7 @@ fig, axes = plt.subplots(
 vars_ = ["pct_counts_mt", "pct_counts_ribo", "pct_counts_hb", "n_genes_by_counts", "total_counts"]
 thresholds = {
     "pct_counts_mt": [25],
-    "pct_counts_ribo": [40],
+    "pct_counts_ribo": [50],
     "pct_counts_hb": [5],
     "n_genes_by_counts": [200,5000],
     "total_counts" : [100,10000]
@@ -108,7 +108,7 @@ plt.show()
 
 ```{python}
 carpall_one = carpall_one[(carpall_one.obs['pct_counts_mt'] < 25) & 
-    (carpall_one.obs['pct_counts_ribo'] < 40) &
+    (carpall_one.obs['pct_counts_ribo'] < 50) &
     (carpall_one.obs['pct_counts_hb'] < 10) &
     (carpall_one.obs['total_counts'] > 100) & 
     (carpall_one.obs['total_counts'] < 10000) & 
@@ -133,8 +133,9 @@ pre = pd.read_csv("patient_cell_counts_pre_qc.csv")
 pre = pre.rename(columns = {"n_cells": "counts_pre"})
 post = pd.read_csv("patient_cell_counts_post_qc.csv")
 post = post.rename(columns = {"n_cells": "counts_post"})
-cell_counts = pd.merge(pre, post, how = "inner")
-cell_counts = cell_counts.drop(columns = "Unnamed: 0")
+cell_counts = pd.merge(pre, post, how = "inner", on = "Patient")
+cell_counts = cell_counts.drop(columns = "Unnamed: 0_x")
+cell_counts = cell_counts.drop(columns = "Unnamed: 0_y")
 cell_counts = pd.melt(cell_counts, id_vars=["Patient"], var_name="qc_stage", value_name="n_cells")
 ```
 
@@ -158,8 +159,6 @@ plt.show()
 ```
 
 ```{python}
-carpall_one.X = carpall_one.layers['soupx_counts']
-carpall_one.layers['counts'] = carpall_one.X.copy()
 sc.pp.normalize_total(carpall_one, target_sum=1e4)
 sc.pp.log1p(carpall_one)
 carpall_one.layers['logcounts'] = carpall_one.X.copy()
@@ -205,7 +204,7 @@ plt.savefig("Elbow_plot.png", dpi=300)
 ```
 
 ```{python}
-sc.pp.neighbors(carpall_one, n_pcs=11)
+sc.pp.neighbors(carpall_one, n_pcs=10)
 sc.tl.umap(carpall_one, random_state=2026)
 ```
 
@@ -218,46 +217,13 @@ plt.savefig("UMAP_uncorrected.png",dpi=300)
 ```
 
 ```{python}
-carpall_hvg = carpall_one[:, carpall_one.var["highly_variable"]].copy()
-carpall_hvg
+carpall_one.obs["patient_timepoint"] = (
+    carpall_one.obs["Patient"].astype(str)
+    + "_"
+    + carpall_one.obs["Timepoint_bin"].astype(str)
+)
 ```
 
-```{python}
-scvi.model.SCVI.setup_anndata(carpall_hvg, layer="counts", batch_key="batch")
-carpall_hvg
-model_scvi = scvi.model.SCVI(carpall_hvg)
-model_scvi
-model_scvi.view_anndata_setup()
-```
-
-```{python}
-max_epochs_scvi = np.min([round((20000 / carpall_one.n_obs) * 400), 400])
-max_epochs_scvi
-```
-
-```{python}
-model_scvi.train(accelerator="mps")
-```
-
-```{python}
-carpall_one.obsm["X_scVI"] = model_scvi.get_latent_representation()
-sc.pp.neighbors(carpall_one, use_rep="X_scVI")
-sc.tl.umap(carpall_one)
-```
-
-```{python}
-plt.figure(figsize=(10,10))
-sc.pl.umap(carpall_one, color=["batch", "Patient"],
-wspace=0.5,show=True, size = 2, ncols=2)
-plt.savefig("UMAP_scvi.png",dpi=300)
-```
-
-```{python}
-plt.figure(figsize=(10,10))
-sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort" "Source", "soupx_applied"], basis = "X_scvi", 
-wspace=0.5,show=True, size = 2, ncols=2)
-plt.savefig("UMAP_metcarpall_one.png",dpi=300)
-```
 
 # trying harmony instead
 ```{python}
@@ -283,7 +249,6 @@ carpall_one.obsm['X_pca_harmony'] = harmony_out.Z_corr
 # Use harmonized PCs for downstream analysis
 sc.pp.neighbors(carpall_one, use_rep='X_pca_harmony')
 sc.tl.umap(carpall_one)
-sc.tl.leiden(carpall_one)
 ```
 
 ```{python}
@@ -295,13 +260,6 @@ fig.savefig("umap_harmony.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
-```{python}
-carpall_one.obs["patient_timepoint"] = (
-    carpall_one.obs["Patient"].astype(str)
-    + "_"
-    + carpall_one.obs["Timepoint_bin"].astype(str)
-)
-```
 
 ```{python}
 order = ["Product", "Early", "Mid", "Late"]
@@ -313,12 +271,17 @@ carpall_one.obs["Timepoint_bin"] = pd.Categorical(
 ```
 
 ```{python}
-fig = sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort", "Source"], 
-wspace=1,show=False, size = 2, ncols=3,frameon = False, return_fig = True)
+fig = sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort", "Source", "cellbender_applied"], 
+wspace=1,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
 fig.set_size_inches(9, 3)
 print(fig.get_size_inches())
 fig.savefig("umap_test.png", dpi=300, bbox_inches="tight")
 plt.close
+```
+
+```{python}
+sc.pl.umap(carpall_one, color=["], 
+wspace=1,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
 ```
 
 ```{python}
@@ -331,7 +294,7 @@ pd.crosstab(carpall_one.obs["Sort"], carpall_one.obs["Source"])
 ```
 
 ```{python}
-sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "LYZ", "CD14", "FCGR3A", "MZB1", "JCHAIN", "PTPRC", "CSF3R"], legend_fontsize="x-large", size = 1, ncols = 4, frameon = False)
+sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "LYZ", "CD14", "FCGR3A", "MZB1", "JCHAIN", "PTPRC", "NCAM1", "CSF3R", "CD68"], legend_fontsize="x-large", size = 1, ncols = 4, frameon = False)
 ```
 
 ```{python}

@@ -18,7 +18,7 @@ carpall_meta = carpall_meta.drop(columns=["Unnamed: 0"])
 
 # get list of file names of the carpall samples and then only keep samples that are in paper metadata, don't weren't in the pilot study (which is presumably why they are cellranger 302 rather than 500) and aren't a vdj sampleß
 ```{python}
-file_names = os.listdir("/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq_data_CARPALL/")
+file_names = os.listdir("../carpall_cellbender/CARPALL_h5/")
 gex_ids = carpall_meta["GEX_id"].astype(str)
 file_names = [f for f in file_names if any(gid in f for gid in gex_ids)]
 file_names = [f for f in file_names if "cellranger302" not in f]
@@ -40,49 +40,48 @@ pd.Series(cellbender_filenames).to_csv(
 ```{python}
 adatas = []
 
-base_dir = "/Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq data - CARPALL/"
+base_dir = "../carpall_cellbender/CARPALL_h5"
 
 for folder in file_names:
 
     sample_dir = os.path.join(base_dir, folder)
 
     raw_path = os.path.join(sample_dir, "filtered_feature_bc_matrix.h5")
-    soupx_path = os.path.join(sample_dir, "soupx_corrected")
+    cellbender_path = os.path.join(sample_dir, "cellbender_output_filtered.h5")
 
     print(f"\nProcessing {folder}")
 
-    # --- 1. Always load RAW counts ---
+    sample_id = os.path.basename(folder)
+
+    # --- DEFAULT: RAW ---
     adata = sc.read_10x_h5(raw_path)
     adata.var_names_make_unique()
 
-    sample_id = os.path.basename(folder)
     adata.obs_names = [f"{sample_id}_{bc}" for bc in adata.obs_names]
     adata.obs["file_id"] = sample_id
 
-    # store raw counts
-    adata.layers["raw_counts"] = adata.X.copy()
+    # track which matrix is used
+    adata.obs["cellbender_applied"] = False
 
-    soupx_applied = False
-
-    if os.path.exists(soupx_path):
+    # --- OVERRIDE WITH CELLBENDER IF AVAILABLE ---
+    if os.path.exists(cellbender_path):
         try:
-            adata_soupx = sc.read_10x_h5(soupx_path)
-            adata_soupx.var_names_make_unique()
+            adata_cb = sc.read_10x_h5(cellbender_path)
+            adata_cb.var_names_make_unique()
 
-            if adata_soupx.shape == adata.shape:
-                adata.layers["soupx_counts"] = adata_soupx.X.copy()
-                soupx_applied = True
-                print(f"{folder}: SoupX added")
-            else:
-                print(f"{folder}: shape mismatch — using raw instead")
+            adata_cb.obs_names = [f"{sample_id}_{bc}" for bc in adata_cb.obs_names]
+            adata_cb.obs["file_id"] = sample_id
+
+            adata = adata_cb  # <-- hard swap (no matching, no checks)
+
+            adata.obs["cellbender_applied"] = True
+            print(f"{folder}: using CellBender")
 
         except Exception as e:
-            print(f"{folder}: SoupX failed ({e})")
+            print(f"{folder}: CellBender failed ({e}) — using raw")
 
-    if "soupx_counts" not in adata.layers:
-        adata.layers["soupx_counts"] = adata.layers["raw_counts"].copy()
-
-    adata.obs["soupx_applied"] = soupx_applied
+    # store counts (whatever was selected)
+    adata.layers["counts"] = adata.X.copy()
 
     adatas.append(adata)
 ```
@@ -94,7 +93,7 @@ carpall = sc.concat(adatas, label="file_id", keys=[os.path.basename(f) for f in 
 
 # make a carpall column to can distinguish/batch correct easily down the line
 ```{python}
-carpall.obs["study"] = "carpall"
+carpall.obs["study"] = "carpall_one"
 ```
 
 # make a new column pulling out the sample id from the file name, this will be used to allow the metadata to be merged
@@ -107,89 +106,5 @@ carpall.obs
 ```
 
 ```{python}
-carpall.obs = (
-    carpall.obs
-    .reset_index()
-    .merge(carpall_meta, on="GEX_id", how="left")
-    .set_index("index")
-)
-carpall.obs
-corrected = carpall.layers["soupx_counts"]
-raw = carpall.layers["raw_counts"]
-print("corrected mean:", corrected.sum() / (corrected.shape[0] * corrected.shape[1]))
-print("raw mean:", raw.sum() / (raw.shape[0] * raw.shape[1]))
-```
-
-```{python}
-carpall.X = carpall.layers["soupx_counts"]
-```
-
-```{python}
-carpall.write("1_carpall_soupx_corrected.h5ad")
-```
-
-# load in blina metadata
-```{python}
-blina_meta = pd.read_csv("/Users/rmhadgm/OneDrive - University College London/Ghorashian_group/Blina_scRNAseq/Blinatumomab_pilot_sample_details.csv")
-blina_meta = blina_meta[["Patient", "Timepoint", "file_id"]]
-```
-
-```{python}
-path = "/Users/rmhadgm/OneDrive - University College London/Ghorashian_group/Blina_scRNAseq/RNA"
-
-file_names = [
-    f for f in os.listdir(path)
-    if not f.startswith(".")
-]
-```
-
-```{python}
-adatas = []
-
-for folder in file_names:
-    path = os.path.join("/Users/rmhadgm/OneDrive - University College London/Ghorashian_group/Blina_scRNAseq/RNA",folder, "sample_filtered_feature_bc_matrix.h5")
-    adata = sc.read_10x_h5(path)
-    adata.var_names_make_unique()
-    sample_id = os.path.basename(folder)
-    adata.obs_names = [f"{sample_id}_{bc}" for bc in adata.obs_names]
-    adata.obs["file_id"] = sample_id
-    
-    adatas.append(adata)
-```
-
-```{python}
-blina = sc.concat(adatas, label="file_id", keys=[os.path.basename(f) for f in file_names])
-```
-
-```{python}
-blina.obs["study"] = "blina"
-```
-
-```{python}
-blina.obs = (
-    blina.obs
-    .reset_index()
-    .merge(blina_meta, on="file_id", how="left")
-    .set_index("index")
-)
-blina.obs
-```
-
-```{python}
-blina.obs["sample_id"] = blina.obs["file_id"]
-blina.obs
-```
-
-```{python}
-carpall_blina = sc.concat(
-    [carpall, blina],
-    join="outer",      # keep union of genes
-    merge="same",
-    index_unique=None
-)
-carpall_blina
-```
-
-```{python}
-carpall_blina.write("1_carpall_blina_pre_qc.h5ad")
+carpall.write("1_carpall_cellbender_corrected.h5ad")
 ```

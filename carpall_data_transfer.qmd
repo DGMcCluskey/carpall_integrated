@@ -3,7 +3,17 @@ title: "Untitled"
 format: html
 ---
 
-# script to transfer files from the cluster to my machine
+# script to transfer files from the cluster to local machine
 ```{bash}
-sync -avh --progress  dmccluskey@10.0.7.5:/home/lab/dmccluskey/CARPALL_h5 ~/carpall_cellbender
+rsync -avh --progress  dmccluskey@10.0.7.5:/home/lab/dmccluskey/CARPALL_h5 ~/carpall_cellbender
+```
+
+# to transfer filtered matrices to my cellbender output files (so that they are available when a cellbender file is missing due to it failing)
+```{bash}
+rsync -avm --progress \
+  --include='*/' \
+  --include='filtered_feature_bc_matrix.h5' \
+  --exclude='*' \
+  /Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq_data_CARPALL/ \
+  ../carpall_cellbender/CARPALL_h5/
 ```

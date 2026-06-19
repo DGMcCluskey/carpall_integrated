@@ -1,0 +1,35 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{r}
+library(anndataR)
+library(SingleCellExperiment)
+library(scDblFinder)
+```
+
+```{r}
+adata <- read_h5ad("1_carpall_cellbender_corrected.h5ad", as = "SingleCellExperiment")
+adata
+```
+
+```{r}
+assay(adata, "counts") <- assay(adata, "X")
+adata <- scDblFinder(adata, samples = "GEX_id")
+```
+
+```{r}
+colData(adata)$doublet_score <- colData(adata)$scDblFinder.score
+colData(adata)$doublet_class <- colData(adata)$scDblFinder.class
+```
+
+```{r}
+table(adata$doublet_class, adata$GEX_id)
+adata <- as_AnnData(adata)
+adata
+```
+```{r}
+write_h5ad(adata, path ="2.carpall_doublets_identified.h5ad", mode = "w")
+```
