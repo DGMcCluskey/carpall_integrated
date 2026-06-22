@@ -238,15 +238,29 @@ sc.pp.highly_variable_genes(
 )
 ```
 
+# adding controversial scaling step - also allows latent variables such as percent mito to be regressed out
+# in seurat scaling is standard, only in scanpy seems an issue and i lean towards including it
 ```{python}
-sc.pp.pca(carpall_one, svd_solver="arpack", use_highly_variable=True)
+adata_hvg = carpall_one[:, carpall_one.var.highly_variable].copy()
+
+sc.pp.regress_out(adata_hvg, ["pct_counts_mt"])
+sc.pp.scale(adata_hvg)
+sc.pp.pca(adata_hvg)
+```
+
+```{python}
+carpall_one.obsm["X_pca"] = adata_hvg.obsm["X_pca"]
+carpall_one.uns["pca"] = adata_hvg.uns["pca"]
+```
+
+```{python}
 plt.figure()
 sc.pl.pca_variance_ratio(carpall_one, n_pcs=50, log=True)
 plt.savefig("Elbow_plot.png", dpi=300)
 ```
 
 ```{python}
-sc.pp.neighbors(carpall_one, n_pcs=11)
+sc.pp.neighbors(carpall_one, n_pcs=12)
 sc.tl.umap(carpall_one, random_state=2026)
 ```
 
@@ -292,7 +306,7 @@ sc.pl.pca_variance_ratio(carpall_one, n_pcs=50, log=True)
 
 ```{python}
 # Use harmonized PCs for downstream analysis
-sc.pp.neighbors(carpall_one, use_rep='X_pca_harmony', n_pcs=11)
+sc.pp.neighbors(carpall_one, use_rep='X_pca_harmony', n_pcs=13)
 sc.tl.umap(carpall_one)
 ```
 
@@ -316,9 +330,9 @@ carpall_one.obs["Timepoint_bin"] = pd.Categorical(
 ```
 
 ```{python}
-fig = sc.pl.umap(carpall_one, color=["Timepoint_bin", "Sort", "Source", "doublet_class"], 
-wspace=1,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
-fig.set_size_inches(9, 3)
+fig = sc.pl.umap(carpall_one, color=["Patient", "Timepoint_bin", "Sort", "Source", "doublet_class", "cellbender_applied"], 
+wspace=0.5,show=False, size = 1, ncols=3,frameon = False, return_fig = True)
+fig.set_size_inches(12, 6)
 print(fig.get_size_inches())
 fig.savefig("umap_meta.png", dpi=300, bbox_inches="tight")
 plt.close
@@ -334,9 +348,148 @@ pd.crosstab(carpall_one.obs["Sort"], carpall_one.obs["Source"])
 ```
 
 ```{python}
-sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "LYZ", "CD14", "FCGR3A", "MZB1", "MKI67", "PTPRC", "NCAM1", "CSF3R", "CD68", "LEPR", "FLT1", "SPINK2", "CD34"], legend_fontsize="x-large", size = 1, ncols = 4, frameon = False, cmap = "rocket")
+fig=sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "LYZ", "CD14", "FCGR3A", "MZB1", "MKI67", "NCAM1", "CSF3R", "CD68", "CD74", "CD40LG", "CD79B", "PAX5", "CD34"], layer = "logcounts", legend_fontsize="x-large", size = 1, ncols = 4, frameon = False, cmap = "rocket", return_fig=True)
+fig.set_size_inches(12, 8)
+fig.savefig("umap_key_markers.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+# checking cell cycle genes
+```{python}
+s_genes = [
+    'MCM5','PCNA','TYMS','FEN1','MCM2','MCM4','RRM1','UNG',
+    'GINS2','MCM6','CDCA7','DTL','PRIM1','UHRF1','HELLS',
+    'RFC2','RPA2','NASP','RAD51AP1','GMNN','WDR76','SLBP',
+    'CCNE2','UBR7','POLD3','MSH2','ATAD2','RAD51','RRM2',
+    'CDC45','CDC6','EXO1','TIPIN','DSCC1','BLM','CASP8AP2',
+    'USP1','CLSPN','POLA1','CHAF1B','BRIP1','E2F8'
+]
+
+g2m_genes = [
+    'HMGB2','CDK1','NUSAP1','UBE2C','BIRC5','TPX2','TOP2A',
+    'NDC80','CKS2','NUF2','CKS1B','MKI67','TMPO','CENPF',
+    'TACC3','FAM64A','SMC4','CCNB2','CKAP2L','CKAP2',
+    'AURKB','BUB1','KIF11','ANP32E','TUBB4B','GTSE1',
+    'KIF20B','HJURP','CDC20','TTK','CDC25C','KIF2C',
+    'RANGAP1','NCAPD2','DLGAP5','CDCA3','HMMR','AURKA',
+    'PSRC1','ANLN','LBR','CKAP5','CENPE','CTCF','NEK2',
+    'G2E3','GAS2L3','CBX5','CENPA'
+]
+
+s_present = [g for g in s_genes if g in carpall_one.var_names]
+g2m_present = [g for g in g2m_genes if g in carpall_one.var_names]
+
+print(len(s_present), len(g2m_present))
 ```
 
 ```{python}
-sc.pl.scatter(carpall_one, x = "CD3D", y = "LYZ", size = 1, color = "soupx_applied")
+sc.tl.score_genes_cell_cycle(
+    carpall_one,
+    s_genes=s_present,
+    g2m_genes=g2m_present
+)
+```
+
+```{python}
+fig=sc.pl.umap(
+    carpall_one,
+    color=["S_score", "G2M_score", "phase"],size=1,ncols =1, frameon=False,
+    return_fig=True, cmap="rocket")
+
+fig.set_size_inches(6, 10)
+fig.savefig("umap_cell_cycle.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+### checking stress genes
+```{python}
+stress_genes = ["HSPA1A", "HSPA1B", "HSPB1",
+    "DDIT3", "IER2", "IER3"
+]
+
+present = [g for g in stress_genes if g in carpall_one.var_names]
+fig=sc.pl.umap(
+    carpall_one,
+    color=present,size=1,ncols =3, frameon=False,
+    return_fig=True, cmap="rocket")
+
+fig.set_size_inches(10, 6)
+fig.savefig("umap_stress_genes.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+apoptosis_genes = [
+    "CASP3", "CASP6", "FAS", "MAP2K1", "NFKB1"
+]
+
+present = [g for g in apoptosis_genes if g in carpall_one.var_names]
+
+fig=sc.pl.umap(
+    carpall_one,
+    color=present,size=1,ncols =3, frameon=False,
+    return_fig=True, cmap="rocket")
+
+fig.set_size_inches(10, 6)
+fig.savefig("umap_apoptosis_genes.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+fig=sc.pl.umap(
+    carpall_one,
+    color=["pct_counts_mt", "pct_counts_hb", "total_counts", "doublet_score"], 
+    size = 1, legend_fontsize="x-large", ncols=2, cmap = "rocket",frameon=False, return_fig=True
+)
+fig.set_size_inches(8, 6)
+fig.savefig("umap_qc_metrics.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+
+```{python}
+fig=sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "CD8B", "CD4", "TRGV1", "CCR7", "SELL", "IL7R", "TCF7", "GZMB", "GZMK", "FOXP3", "TIGIT", "CD27", "CD28"], legend_fontsize="x-large", size = 1, ncols = 4, frameon = False, cmap = "rocket", return_fig=True)
+fig.set_size_inches(10, 8)
+fig.savefig("umap_Tcell_markers.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+sc.pl.dotplot(carpall_one, var_names=["CD3D", "LYZ", "CD74"], groupby="patient_timepoint")
+```
+
+```{python}
+for res in [0.5,0.6,0.7,0.8,0.9,1,1.5,2]:
+    sc.tl.leiden(carpall_one, key_added = "leiden_res_" + str(res), resolution = res, 
+    flavor = "igraph", n_iterations = 2, directed = False)
+```
+
+```{python}
+sc.pl.umap(
+    carpall_one,
+    color=["leiden_res_0.5",
+     "leiden_res_1", "leiden_res_1.5"], 
+    size = 10, legend_fontsize="x-large", ncols=1, wspace=0.5
+)
+```
+
+```{python}
+sc.pl.dotplot(carpall_one, groupby="leiden_res_1", var_names=["CD3D", "CD3E", "CD8A", "CD8B", "CD4", "NCAM1", "LYZ", "CD14", "CD68", "CD79A", "MZB1", "PAX5", "CD34"])
+```
+
+```{python}
+sc.tl.rank_genes_groups(
+    carpall_one, groupby="leiden_res_1", method="wilcoxon", key_added="dea_leiden_res_1"
+)
+```
+
+```{python}
+sc.tl.dendrogram(
+    carpall_one,
+    groupby="leiden_res_1",
+)
+
+sc.pl.rank_genes_groups_dotplot(
+    carpall_one, groupby="leiden_res_1", standard_scale="var", n_genes=5, key="dea_leiden_res_1"
+)
 ```
