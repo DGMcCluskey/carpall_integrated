@@ -40,19 +40,35 @@ carpall_one
 ```
 
 ```{python}
+order = ["Product", "Early", "Mid", "Late"]
+carpall_one.obs["Timepoint_bin"] = pd.Categorical(
+    carpall_one.obs["Timepoint_bin"],
+    categories=order,
+    ordered=True
+)
+```
+
+```{python}
+carpall_one.obs["patient_timepoint"] = (
+    carpall_one.obs["Patient"].astype(str)
+    + "_"
+    + carpall_one.obs["Timepoint_bin"].astype(str)
+)
+```
+
+```{python}
 fig, axes = plt.subplots(
     nrows=5,
-    ncols=1,
-    figsize=(10, 12)
+    ncols=1
 )
 
 vars_ = ["pct_counts_mt", "pct_counts_ribo", "pct_counts_hb", "n_genes_by_counts", "total_counts"]
 thresholds = {
-    "pct_counts_mt": [25],
+    "pct_counts_mt": [20],
     "pct_counts_ribo": [50],
     "pct_counts_hb": [5],
-    "n_genes_by_counts": [200,4000],
-    "total_counts" : [100,10000]
+    "n_genes_by_counts": [300,4000],
+    "total_counts" : [500,10000]
 }
 
 for ax, var in zip(axes, vars_):
@@ -60,10 +76,11 @@ for ax, var in zip(axes, vars_):
     sc.pl.violin(
         carpall_one,
         keys=var,
-        groupby="Patient",
+        groupby="patient_timepoint",
         stripplot=False,
         ax=ax,
-        show=False
+        show=False,
+        rotation = 45
     )
 
     if var in thresholds:
@@ -77,15 +94,12 @@ for ax, var in zip(axes, vars_):
 
     ax.grid(False)
 
-plt.tight_layout()
+plt.subplots_adjust(hspace=0.3)
 
-fig.savefig(
-    "pre_qc_violins.png",
-    dpi=300,
-    bbox_inches="tight"
-)
-
-plt.close(fig)
+fig.set_size_inches(14, 14)
+print(fig.get_size_inches())
+fig.savefig("pre_qc_violins.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
 ```{python}
@@ -112,12 +126,12 @@ plt.show()
 ```
 
 ```{python}
-carpall_one = carpall_one[(carpall_one.obs['pct_counts_mt'] < 25) & 
+carpall_one = carpall_one[(carpall_one.obs['pct_counts_mt'] < 20) & 
     (carpall_one.obs['pct_counts_ribo'] < 50) &
     (carpall_one.obs['pct_counts_hb'] < 10) &
-    (carpall_one.obs['total_counts'] > 100) & 
+    (carpall_one.obs['total_counts'] > 500) & 
     (carpall_one.obs['total_counts'] < 10000) & 
-    (carpall_one.obs['n_genes_by_counts'] > 200) & 
+    (carpall_one.obs['n_genes_by_counts'] > 300) & 
     (carpall_one.obs['n_genes_by_counts'] < 4000), :].copy()
 ```
 
@@ -227,12 +241,25 @@ carpall_one.obs["batch"] = (
 )
 ```
 
+# excluding the two samples with fewer than 50 cells (6 and 2 cells respectively)
+```{python}
+sample_sizes = carpall_one.obs["GEX_id"].value_counts()
+
+sample_sizes[sample_sizes < 50]
+
+keep_samples = sample_sizes[sample_sizes >= 50].index
+
+carpall_one = carpall_one[
+    carpall_one.obs["GEX_id"].isin(keep_samples)
+].copy()
+```
+
 ```{python}
 sc.pp.highly_variable_genes(
     carpall_one, 
     n_top_genes=2000, 
     flavor="cell_ranger", 
-    batch_key='batch', 
+    batch_key='GEX_id', 
     layer = 'logcounts',
     subset = False
 )
@@ -260,26 +287,27 @@ plt.savefig("Elbow_plot.png", dpi=300)
 ```
 
 ```{python}
-sc.pp.neighbors(carpall_one, n_pcs=12)
+sc.pp.neighbors(carpall_one, n_pcs=25, use_rep="X_pca")
 sc.tl.umap(carpall_one, random_state=2026)
 ```
 
 ```{python}
-plt.figure(figsize=(20,20))
-sc.pl.umap(carpall_one, color=["batch", "Patient", "Timepoint_bin", "Sort"], 
-wspace=0.5,show=True, size = 2, ncols=2)
-plt.tight_layout()
-plt.savefig("UMAP_uncorrected.png",dpi=300)
+fig = sc.pl.umap(carpall_one, color=["batch", "Patient"], 
+wspace=0.5,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(14, 6)
+print(fig.get_size_inches())
+fig.savefig("umap_uncorrected.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
 ```{python}
-carpall_one.obs["patient_timepoint"] = (
-    carpall_one.obs["Patient"].astype(str)
-    + "_"
-    + carpall_one.obs["Timepoint_bin"].astype(str)
-)
+fig = sc.pl.umap(carpall_one, color=["Patient", "Timepoint_bin", "Sort", "Source", "doublet_class", "cellbender_applied"], 
+wspace=0.5,show=False, size = 1, ncols=3,frameon = False, return_fig = True)
+fig.set_size_inches(12, 6)
+print(fig.get_size_inches())
+fig.savefig("umap_meta_uncorrected.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
-
 
 # trying harmony instead
 ```{python}
@@ -295,7 +323,7 @@ batch_patient_structure = pd.crosstab(
 ```
 
 ```{python}
-harmony_out = hm.run_harmony(pcs, carpall_one.obs, "batch")
+harmony_out = hm.run_harmony(pcs, carpall_one.obs, "Patient")
 ```
 
 ```{python}
@@ -306,7 +334,7 @@ sc.pl.pca_variance_ratio(carpall_one, n_pcs=50, log=True)
 
 ```{python}
 # Use harmonized PCs for downstream analysis
-sc.pp.neighbors(carpall_one, use_rep='X_pca_harmony', n_pcs=13)
+sc.pp.neighbors(carpall_one, use_rep='X_pca_harmony', n_pcs=25)
 sc.tl.umap(carpall_one)
 ```
 
@@ -321,15 +349,6 @@ plt.close
 
 
 ```{python}
-order = ["Product", "Early", "Mid", "Late"]
-carpall_one.obs["Timepoint_bin"] = pd.Categorical(
-    carpall_one.obs["Timepoint_bin"],
-    categories=order,
-    ordered=True
-)
-```
-
-```{python}
 fig = sc.pl.umap(carpall_one, color=["Patient", "Timepoint_bin", "Sort", "Source", "doublet_class", "cellbender_applied"], 
 wspace=0.5,show=False, size = 1, ncols=3,frameon = False, return_fig = True)
 fig.set_size_inches(12, 6)
@@ -338,8 +357,13 @@ fig.savefig("umap_meta.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
+# after comparing embeddings, it appears harmony may over-correct due to unbalanced nature of batches/overlap with certain timepoints
+# additionally, some interesting outlying cluster sin the uncorrected embeddding which need to be assessed (and possibly removed)
+# therefore saved object below will be UNCORRECTED version (re-run uncorrected clustering before saving) and all subsequent analysis performed using uncorrected embedding
+
+
 ```{python}
-#carpall_one.write_h5ad("3_carpall_one_clustered.h5ad")
+carpall_one.write_h5ad("3_carpall_one_clustered.h5ad")
 carpall_one = sc.read_h5ad("3_carpall_one_clustered.h5ad")
 ```
 
@@ -403,34 +427,31 @@ plt.close
 
 ### checking stress genes
 ```{python}
-stress_genes = ["HSPA1A", "HSPA1B", "HSPB1",
-    "DDIT3", "IER2", "IER3"
-]
+stress_genes = ["HSPA1A", "HSPA1B", "HSPB1"]
 
 present = [g for g in stress_genes if g in carpall_one.var_names]
 fig=sc.pl.umap(
     carpall_one,
-    color=present,size=1,ncols =3, frameon=False,
+    color=present,size=1,ncols =1, frameon=False,
     return_fig=True, cmap="rocket")
 
-fig.set_size_inches(10, 6)
+fig.set_size_inches(6, 10)
 fig.savefig("umap_stress_genes.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
 ```{python}
 apoptosis_genes = [
-    "CASP3", "CASP6", "FAS", "MAP2K1", "NFKB1"
-]
+    "CASP3", "CASP6", "CASP7"]
 
 present = [g for g in apoptosis_genes if g in carpall_one.var_names]
 
 fig=sc.pl.umap(
     carpall_one,
-    color=present,size=1,ncols =3, frameon=False,
+    color=present,size=1,ncols =1, frameon=False,
     return_fig=True, cmap="rocket")
 
-fig.set_size_inches(10, 6)
+fig.set_size_inches(6, 10)
 fig.savefig("umap_apoptosis_genes.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
@@ -438,7 +459,7 @@ plt.close
 ```{python}
 fig=sc.pl.umap(
     carpall_one,
-    color=["pct_counts_mt", "pct_counts_hb", "total_counts", "doublet_score"], 
+    color=["pct_counts_mt", "pct_counts_hb", "total_counts", "n_genes_by_counts"], 
     size = 1, legend_fontsize="x-large", ncols=2, cmap = "rocket",frameon=False, return_fig=True
 )
 fig.set_size_inches(8, 6)
@@ -455,7 +476,7 @@ plt.close
 ```
 
 ```{python}
-sc.pl.dotplot(carpall_one, var_names=["CD3D", "LYZ", "CD74"], groupby="patient_timepoint")
+sc.pl.dotplot(carpall_one, var_names=["CD3D", "LYZ", "CD3D"], groupby="patient_timepoint")
 ```
 
 ```{python}
@@ -465,31 +486,72 @@ for res in [0.5,0.6,0.7,0.8,0.9,1,1.5,2]:
 ```
 
 ```{python}
-sc.pl.umap(
+fig=sc.pl.umap(
     carpall_one,
     color=["leiden_res_0.5",
      "leiden_res_1", "leiden_res_1.5"], 
-    size = 10, legend_fontsize="x-large", ncols=1, wspace=0.5
+    size = 1, legend_fontsize="x-large", ncols=3, wspace=0.1, legend_loc="on data",frameon=False, return_fig=True
 )
+fig.set_size_inches(24, 6)
+print(fig.get_size_inches())
+fig.savefig("umap_clustering_resolutions.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
 ```{python}
-sc.pl.dotplot(carpall_one, groupby="leiden_res_1", var_names=["CD3D", "CD3E", "CD8A", "CD8B", "CD4", "NCAM1", "LYZ", "CD14", "CD68", "CD79A", "MZB1", "PAX5", "CD34"])
+sc.pl.dotplot(carpall_one, groupby="leiden_res_0.5", var_names=["CD3D", "CD3E", "CD8A", "CD8B", "CD4", "CD40LG", "SELL", "CCR7", "IL7R", "GZMA", "GZMB", "GZMK", "TIGIT", "FOXP3", "NCAM1", "LYZ", "CD14", "CD68", "CD79A", "MZB1", "PAX5", "CD34"])
 ```
 
 ```{python}
 sc.tl.rank_genes_groups(
-    carpall_one, groupby="leiden_res_1", method="wilcoxon", key_added="dea_leiden_res_1"
+    carpall_one, groupby="leiden_res_0.5", method="wilcoxon", key_added="dea_leiden_res_0.5"
 )
+
+sc.tl.filter_rank_genes_groups(
+    carpall_one,
+    min_in_group_fraction=0.25,
+    max_out_group_fraction=0.25,
+    key="dea_leiden_res_0.5",
+    key_added="dea_leiden_res_0.5_filtered",
+)
+```
+
+```{python}
+degs = sc.get.rank_genes_groups_df(
+    carpall_one,
+    group=None,
+    key="dea_leiden_res_0.5_filtered"
+)
+
+degs.to_csv("resolution_0_5_degs.csv", index=False)
 ```
 
 ```{python}
 sc.tl.dendrogram(
     carpall_one,
-    groupby="leiden_res_1",
+    groupby="leiden_res_0.5",
 )
 
 sc.pl.rank_genes_groups_dotplot(
-    carpall_one, groupby="leiden_res_1", standard_scale="var", n_genes=5, key="dea_leiden_res_1"
+    carpall_one, groupby="leiden_res_0.5", standard_scale="var", n_genes=5, key="dea_leiden_res_0.5_filtered"
+)
+```
+
+```{python}
+sc.pl.rank_genes_groups_dotplot(
+    carpall_one, groupby="leiden_res_0.5", standard_scale="var", n_genes=10, key="dea_leiden_res_0.5_filtered", groups = ["1", "2", "3"]
+)
+```
+
+
+```{python}
+sc.pl.dotplot(carpall_one, groupby="leiden_res_0.5", var_names=["CD3D", "CD3E", "CD8A", "CD4", "ICOS", "PDCD1", "TIGIT", "KLRC1", "KLRC2", "NCAM1", "KLRB1", "SLC4A10", "LYZ", "S100A8", "CD14", "CD68", "IRF7", "CD79A", "MZB1", "SDC1", "CD34", "MKI67", "TPSAB1"], dendrogram=True,
+standard_scale="var")
+```
+
+```{python}
+resolution_0_5_cell_numbers = pd.crosstab(
+    carpall_one.obs["Timepoint_bin"],
+    carpall_one.obs["leiden_res_0.5"]
 )
 ```
