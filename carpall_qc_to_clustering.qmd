@@ -504,15 +504,15 @@ sc.pl.dotplot(carpall_one, groupby="leiden_res_0.5", var_names=["CD3D", "CD3E", 
 
 ```{python}
 sc.tl.rank_genes_groups(
-    carpall_one, groupby="leiden_res_0.5", method="wilcoxon", key_added="dea_leiden_res_0.5"
+    carpall_one, groupby="leiden_res_1", method="wilcoxon", key_added="dea_leiden_res_1"
 )
 
 sc.tl.filter_rank_genes_groups(
     carpall_one,
     min_in_group_fraction=0.25,
     max_out_group_fraction=0.25,
-    key="dea_leiden_res_0.5",
-    key_added="dea_leiden_res_0.5_filtered",
+    key="dea_leiden_res_1",
+    key_added="dea_leiden_res_1_filtered",
 )
 ```
 
@@ -520,38 +520,61 @@ sc.tl.filter_rank_genes_groups(
 degs = sc.get.rank_genes_groups_df(
     carpall_one,
     group=None,
-    key="dea_leiden_res_0.5_filtered"
+    key="dea_leiden_res_1_filtered"
 )
 
-degs.to_csv("resolution_0_5_degs.csv", index=False)
+degs.to_csv("resolution_1_degs.csv", index=False)
 ```
 
 ```{python}
 sc.tl.dendrogram(
     carpall_one,
-    groupby="leiden_res_0.5",
+    groupby="leiden_res_1",
 )
 
 sc.pl.rank_genes_groups_dotplot(
-    carpall_one, groupby="leiden_res_0.5", standard_scale="var", n_genes=5, key="dea_leiden_res_0.5_filtered"
+    carpall_one, groupby="leiden_res_1", standard_scale="var", n_genes=5, key="dea_leiden_res_1_filtered"
 )
 ```
 
 ```{python}
-sc.pl.rank_genes_groups_dotplot(
-    carpall_one, groupby="leiden_res_0.5", standard_scale="var", n_genes=10, key="dea_leiden_res_0.5_filtered", groups = ["1", "2", "3"]
+dp=sc.pl.rank_genes_groups_dotplot(
+    carpall_one, groupby="leiden_res_1", standard_scale="var", n_genes=10, key="dea_leiden_res_1_filtered", groups = ["7", "9", "11", "19"], return_fig=True
 )
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(12, 12)
+print(fig.get_size_inches())
+fig.savefig("resolution_1_specific_cluster_degs_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
 
 ```{python}
-sc.pl.dotplot(carpall_one, groupby="leiden_res_0.5", var_names=["CD3D", "CD3E", "CD8A", "CD4", "ICOS", "PDCD1", "TIGIT", "KLRC1", "KLRC2", "NCAM1", "KLRB1", "SLC4A10", "LYZ", "S100A8", "CD14", "CD68", "IRF7", "CD79A", "MZB1", "SDC1", "CD34", "MKI67", "TPSAB1"], dendrogram=True,
-standard_scale="var")
+dp=sc.pl.dotplot(carpall_one, groupby="leiden_res_1", var_names=["CAT_scFv","CD3D", "CD3E", "CD8A", "CD4", "CCR7", "IL7R", "GZMB", "GZMK", "GZMK", "PRF1", "TIGIT", "KLRC1", "KLRC2", "NCAM1", "KLRB1", "SLC4A10", "LYZ", "S100A8", "CD14", "FCGR3A", "CD68", "CD79A", "IGHD", "IGHM", "MZB1", "CD34", "MKI67", "IFNG", "TNF", "IL6", "CXCL8", "CXCR3", "ITGAE", "SELPLG"], dendrogram=True,
+standard_scale="var", return_fig=True, cmap = "mako_r")
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(12, 12)
+print(fig.get_size_inches())
+fig.savefig("resolution_1_key_genes_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
 ```{python}
-resolution_0_5_cell_numbers = pd.crosstab(
-    carpall_one.obs["Timepoint_bin"],
-    carpall_one.obs["leiden_res_0.5"]
+cluster_counts = (
+    carpall_one.obs["leiden_res_1"]
+    .value_counts(normalize=True)
+    .sort_index()
+    .mul(100)
+    .reset_index()
 )
+
+cluster_counts.columns = ["cluster", "percent_cells"]
+```
+
+```{python}
+plt.figure()
+sns.barplot(data=cluster_counts, x="cluster", y = "percent_cells")
+
 ```
