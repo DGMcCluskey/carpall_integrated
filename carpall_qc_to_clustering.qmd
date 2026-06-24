@@ -11,6 +11,7 @@ import anndata as ad
 import pandas as pd
 import os
 import seaborn as sns
+from seaborn import objects as so
 import matplotlib.pyplot as plt
 import scvi
 import harmonypy as hm
@@ -363,7 +364,7 @@ plt.close
 
 
 ```{python}
-carpall_one.write_h5ad("3_carpall_one_clustered.h5ad")
+#carpall_one.write_h5ad("3_carpall_one_clustered.h5ad")
 carpall_one = sc.read_h5ad("3_carpall_one_clustered.h5ad")
 ```
 
@@ -632,14 +633,42 @@ carpall_one.obs["celltypist_low_score"] = ad_low.obs["conf_score"]
 ```
 
 ```{python}
-fig = sc.pl.umap(carpall_one, color=["celltypist_high_label", "celltypist_low_label", "celltypist_high_score", "celltypist_low_score"], 
-wspace=0.5,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
-fig.set_size_inches(24, 24)
+fig = sc.pl.umap(carpall_one, color=["celltypist_high_label", "celltypist_low_label"], 
+wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(20, 10)
 print(fig.get_size_inches())
 fig.savefig("umap_celltypist.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
+# remove contaminating clusters and re-run clustering
+# will also check cells called as doublets to see if justified removing
+
+```{python}
+vars_ = ["pct_counts_mt", "n_genes_by_counts", "total_counts"]
+plt.figure(figsize=(10,6))
+sc.pl.violin(carpall_one, keys=vars_, groupby="doublet_class", stripplot=False, show=True)
+plt.savefig("violin_qc_doublets.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+for k in [
+    "dea_leiden_res_1",
+    "dea_leiden_res_1_filtered",
+    "dendrogram_leiden_res_1"
+]:
+    carpall_one.uns.pop(k, None)
+#carpall_one.write_h5ad("4_carpall_clustering_round1.h5ad")
+carpall_one = sc.read_h5ad("4_carpall_clustering_round1.h5ad")
+```
+
+```{python}
+
+```
+
+
+# getting celltype proportions
 ```{python}
 label_props = carpall_one.obs["celltypist_high_label"].value_counts(normalize=True)
 
@@ -667,10 +696,90 @@ carpall_one.obs["celltypist_low_label_1pct"] = labels.where(
 ```
 
 ```{python}
-fig = sc.pl.umap(carpall_one, color=["celltypist_low_label_1pct"], 
-wspace=0.5,show=False, size = 1, ncols=1,frameon = False, return_fig = True)
-fig.set_size_inches(24, 24)
+custom_palette = {
+    "Tcm/Naive cytotoxic T cells" : "lime",
+    "Tem/Trm cytotoxic T cells" : "palegreen",
+    "Tem/Temra cytotoxic T cells" : "seagreen",
+    "Tcm/Naive helper T cells" : "royalblue",
+    "Tem/Effector helper T cells" : "deepskyblue",
+    "Regulatory T cells" : "darkturquoise",
+    "CD16+ NK cells" : "mediumorchid",
+    "NK cells" : "magenta",
+    "Classical monocytes" : "red",
+    "Non-classical monocytes" : "darkred",
+    "Memory B cells" : "gold",
+    "Other" : "grey"
+}
+
+
+fig = sc.pl.umap(carpall_one, color=["celltypist_low_label_1pct", "celltypist_low_score"], 
+wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True, palette=custom_palette)
+fig.set_size_inches(12, 5)
 print(fig.get_size_inches())
 fig.savefig("umap_celltypist_low_1pct.png", dpi=300, bbox_inches="tight")
 plt.close
+```
+
+```{python}
+counts = pd.crosstab(
+    carpall_one.obs["Timepoint_bin"],
+    carpall_one.obs["celltypist_low_label_1pct"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "Timepoint_bin", var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="Timepoint_bin", y="percent", color="celltype")
+    .scale(color=custom_palette)
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("celltypist_proportions_time.png", dpi=300, bbox_inches="tight")
+```
+
+# split proportion changes by blood or bone marrow origin
+```{python}
+counts = pd.crosstab(
+    index=[carpall_one.obs["Timepoint_bin"], carpall_one.obs["Source"]],
+    columns=carpall_one.obs["celltypist_low_label_1pct"]
+)
+
+props = counts.div(counts.sum(axis=1), axis=0) * 100
+
+props = (
+    props
+    .reset_index()
+    .melt(
+        id_vars=["Timepoint_bin", "Source"],
+        var_name="celltype",
+        value_name="percent"
+    )
+)
+```
+
+```{python}
+p = (
+    so.Plot(props, x="Timepoint_bin", y="percent", color="celltype")
+    .facet("Source")
+    .scale(color=custom_palette)
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("celltypist_proportions_time_and_source.png", dpi=300, bbox_inches="tight")
 ```
