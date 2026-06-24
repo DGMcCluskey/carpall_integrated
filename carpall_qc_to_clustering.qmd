@@ -268,16 +268,16 @@ sc.pp.highly_variable_genes(
 # adding controversial scaling step - also allows latent variables such as percent mito to be regressed out
 # in seurat scaling is standard, only in scanpy seems an issue and i lean towards including it
 ```{python}
-adata_hvg = carpall_one[:, carpall_one.var.highly_variable].copy()
+carpall_one_hvg = carpall_one[:, carpall_one.var.highly_variable].copy()
 
-sc.pp.regress_out(adata_hvg, ["pct_counts_mt"])
-sc.pp.scale(adata_hvg)
-sc.pp.pca(adata_hvg)
+sc.pp.regress_out(carpall_one_hvg, ["pct_counts_mt"])
+sc.pp.scale(carpall_one_hvg)
+sc.pp.pca(carpall_one_hvg)
 ```
 
 ```{python}
-carpall_one.obsm["X_pca"] = adata_hvg.obsm["X_pca"]
-carpall_one.uns["pca"] = adata_hvg.uns["pca"]
+carpall_one.obsm["X_pca"] = carpall_one_hvg.obsm["X_pca"]
+carpall_one.uns["pca"] = carpall_one_hvg.uns["pca"]
 ```
 
 ```{python}
@@ -577,4 +577,100 @@ cluster_counts.columns = ["cluster", "percent_cells"]
 plt.figure()
 sns.barplot(data=cluster_counts, x="cluster", y = "percent_cells")
 
+```
+
+# celltypist to assist in annotation
+
+```{python}
+import celltypist
+from celltypist import models
+```
+
+```{python}
+models.download_models(
+    force_update=True, 
+    model=["Immune_All_High.pkl"]
+)
+model_immune_high = models.Model.load(model="Immune_All_High.pkl")
+
+models.download_models(
+    force_update=True, 
+    model=["Immune_All_Low.pkl"]
+)
+model_immune_low = models.Model.load(model="Immune_All_Low.pkl")
+```
+
+```{python}
+# =========================
+# HIGH-RES MODEL
+# =========================
+
+pred_high = celltypist.annotate(
+    carpall_one,
+    model="Immune_All_High.pkl"
+)
+
+ad_high = pred_high.to_adata(insert_conf=True)
+
+carpall_one.obs["celltypist_high_label"] = ad_high.obs["predicted_labels"]
+carpall_one.obs["celltypist_high_score"] = ad_high.obs["conf_score"]
+
+
+# =========================
+# LOW-RES MODEL
+# =========================
+
+pred_low = celltypist.annotate(
+    carpall_one,
+    model="Immune_All_Low.pkl"
+)
+
+ad_low = pred_low.to_adata(insert_conf=True)
+
+carpall_one.obs["celltypist_low_label"] = ad_low.obs["predicted_labels"]
+carpall_one.obs["celltypist_low_score"] = ad_low.obs["conf_score"]
+```
+
+```{python}
+fig = sc.pl.umap(carpall_one, color=["celltypist_high_label", "celltypist_low_label", "celltypist_high_score", "celltypist_low_score"], 
+wspace=0.5,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(24, 24)
+print(fig.get_size_inches())
+fig.savefig("umap_celltypist.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+label_props = carpall_one.obs["celltypist_high_label"].value_counts(normalize=True)
+
+major_labels = label_props[label_props >= 0.05].index
+
+labels = carpall_one.obs["celltypist_high_label"].astype(str)
+
+carpall_one.obs["celltypist_high_label_5pct"] = labels.where(
+    labels.isin(major_labels),
+    "Other"
+)
+```
+
+```{python}
+label_props = carpall_one.obs["celltypist_low_label"].value_counts(normalize=True)
+
+major_labels = label_props[label_props >= 0.01].index
+
+labels = carpall_one.obs["celltypist_low_label"].astype(str)
+
+carpall_one.obs["celltypist_low_label_1pct"] = labels.where(
+    labels.isin(major_labels),
+    "Other"
+)
+```
+
+```{python}
+fig = sc.pl.umap(carpall_one, color=["celltypist_low_label_1pct"], 
+wspace=0.5,show=False, size = 1, ncols=1,frameon = False, return_fig = True)
+fig.set_size_inches(24, 24)
+print(fig.get_size_inches())
+fig.savefig("umap_celltypist_low_1pct.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
