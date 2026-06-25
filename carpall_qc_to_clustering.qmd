@@ -1210,4 +1210,58 @@ labels = {
     "32":"CD8+ T"
 
 }
+
+carpall_one.obs["broad_labels"] = carpall_one.obs["leiden_res_1"].map(labels)
+```
+
+```{python}
+custom_palette = {
+    "Tcm/Naive cytotoxic T cells" : "lime",
+    "Tem/Trm cytotoxic T cells" : "palegreen",
+    "Tem/Temra cytotoxic T cells" : "seagreen",
+    "Tcm/Naive helper T cells" : "royalblue",
+    "Tem/Effector helper T cells" : "deepskyblue",
+    "Regulatory T cells" : "darkturquoise",
+    "CD16+ NK cells" : "mediumorchid",
+    "NK cells" : "magenta",
+    "Classical monocytes" : "red",
+    "Non-classical monocytes" : "darkred",
+    "Memory B cells" : "gold",
+    "Other" : "grey"
+}
+
+
+fig = sc.pl.umap(carpall_one, color=["celltypist_low_label_1pct", "celltypist_low_score"], 
+wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True, palette=custom_palette)
+fig.set_size_inches(12, 5)
+print(fig.get_size_inches())
+fig.savefig("umap_celltypist_low_1pct.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+label_palette = {
+    "Myeloid":"gold",
+    "CD8+ CAR T":"darkred",
+    "Cycling CD8+ CAR T":"orangered",
+    "CD8+ T":"red",
+    "CD4+ T":"blue",
+    "Mixed CAR T":"teal",
+    "Mixed T":"skyblue",
+    "DN CAR T":"springgreen",
+    "DN T":"green",
+    "MAIT":"greenyellow",
+    "Naive T":"lightcoral",
+    "CD16+ NK":"darkorchid",
+    "CD16lo NK":"mediumpurple",
+    "B-ALL relapse":"grey",
+    "pDC":"goldenrod"
+}
+
+fig = sc.pl.umap(carpall_one, color=["broad_labels"], 
+wspace=1,show=False, size = 1, ncols=1,frameon = False, return_fig = True,palette=label_palette)
+fig.set_size_inches(12, 5)
+print(fig.get_size_inches())
+fig.savefig("umap_broad_annotation.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
