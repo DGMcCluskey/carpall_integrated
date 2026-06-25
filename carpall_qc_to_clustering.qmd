@@ -550,9 +550,8 @@ fig.savefig("resolution_1_specific_cluster_degs_dotplot.png", dpi=300, bbox_inch
 plt.close
 ```
 
-
 ```{python}
-dp=sc.pl.dotplot(carpall_one, groupby="leiden_res_1", var_names=["CAT_scFv","CD3D", "CD3E", "CD8A", "CD4", "CCR7", "IL7R", "GZMB", "GZMK", "GZMK", "PRF1", "TIGIT", "KLRC1", "KLRC2", "NCAM1", "KLRB1", "SLC4A10", "LYZ", "S100A8", "CD14", "FCGR3A", "CD68", "CD79A", "IGHD", "IGHM", "MZB1", "CD34", "MKI67", "IFNG", "TNF", "IL6", "CXCL8", "CXCR3", "ITGAE", "SELPLG"], dendrogram=True,
+dp=sc.pl.dotplot(carpall_one, groupby="leiden_res_1", var_names=["CAT_scFv","CD3D", "CD3E", "CD8A", "CD4", "CCR7", "IL7R", "GZMB", "GZMK", "GZMK", "PRF1", "TIGIT", "KLRC2", "NCAM1", "KLRB1", "SLC4A10", "LYZ", "S100A8", "CD14", "FCGR3A", "CD68", "CD79A", "CD79B", "PRDM1", "CD19", "MS4A1", "IGKC", "IGHM", "MZB1", "TCF4", "MKI67"], dendrogram=True,
 standard_scale="var", return_fig=True, cmap = "mako_r")
 dp.make_figure()
 fig=dp.fig
@@ -599,13 +598,15 @@ models.download_models(
     model=["Immune_All_Low.pkl"]
 )
 model_immune_low = models.Model.load(model="Immune_All_Low.pkl")
+
+models.download_models(
+    force_update=True, 
+    model=["COVID19_HumanChallenge_Blood.pkl"]
+)
+model_covid = models.Model.load(model="COVID19_HumanChallenge_Blood.pkl")
 ```
 
 ```{python}
-# =========================
-# HIGH-RES MODEL
-# =========================
-
 pred_high = celltypist.annotate(
     carpall_one,
     model="Immune_All_High.pkl"
@@ -615,11 +616,6 @@ ad_high = pred_high.to_adata(insert_conf=True)
 
 carpall_one.obs["celltypist_high_label"] = ad_high.obs["predicted_labels"]
 carpall_one.obs["celltypist_high_score"] = ad_high.obs["conf_score"]
-
-
-# =========================
-# LOW-RES MODEL
-# =========================
 
 pred_low = celltypist.annotate(
     carpall_one,
@@ -664,9 +660,156 @@ carpall_one = sc.read_h5ad("4_carpall_clustering_round1.h5ad")
 ```
 
 ```{python}
-
+to_remove = ["7","9","34"]
+cells_before = carpall_one.n_obs
+carpall_one = carpall_one[
+    ~(carpall_one.obs["leiden_res_1"].isin(to_remove)) &
+    (carpall_one.obs["doublet_class"] == "singlet")].copy()
+cells_after = carpall_one.n_obs
+sc.pl.umap(carpall_one, color = "leiden_res_1", legend_loc = "on data")
 ```
 
+```{python}
+sample_sizes = carpall_one.obs["GEX_id"].value_counts()
+
+sample_sizes[sample_sizes < 50]
+
+keep_samples = sample_sizes[sample_sizes >= 50].index
+```
+
+```{python}
+carpall_one = carpall_one[
+    carpall_one.obs["GEX_id"].isin(keep_samples)
+].copy()
+```
+
+```{python}
+sc.pp.highly_variable_genes(
+    carpall_one, 
+    n_top_genes=2000, 
+    flavor="cell_ranger", 
+    batch_key='GEX_id', 
+    layer = 'logcounts',
+    subset = False
+)
+```
+
+```{python}
+carpall_one_hvg = carpall_one[:, carpall_one.var.highly_variable].copy()
+
+sc.pp.regress_out(carpall_one_hvg, ["pct_counts_mt"])
+sc.pp.scale(carpall_one_hvg)
+sc.pp.pca(carpall_one_hvg)
+```
+
+```{python}
+carpall_one.obsm["X_pca"] = carpall_one_hvg.obsm["X_pca"]
+carpall_one.uns["pca"] = carpall_one_hvg.uns["pca"]
+```
+
+```{python}
+plt.figure()
+sc.pl.pca_variance_ratio(carpall_one, n_pcs=50, log=True)
+plt.savefig("Elbow_plot.png", dpi=300)
+```
+
+```{python}
+sc.pp.neighbors(carpall_one, n_pcs=25, use_rep="X_pca")
+sc.tl.umap(carpall_one, random_state=2026)
+```
+
+```{python}
+fig = sc.pl.umap(carpall_one, color=["batch", "Patient"], 
+wspace=0.5,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(14, 6)
+print(fig.get_size_inches())
+fig.savefig("umap_2nd_round.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+fig = sc.pl.umap(carpall_one, color=["Patient", "Timepoint_bin", "Sort", "Source"], 
+wspace=0.5,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(12, 6)
+print(fig.get_size_inches())
+fig.savefig("umap_2nd_round_meta.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+fig=sc.pl.umap(carpall_one, color = ["CAT_scFv", "CD3D", "CD8A", "CD4", "LYZ", "CD14", "FCGR3A", "CD68", "NCAM1", "GZMB", "GZMK", "CSF3R", "TCF4", "MZB1", "IGHM", "MKI67"], layer = "logcounts", legend_fontsize="x-large", size = 1, ncols = 4, frameon = False, cmap = "rocket", return_fig=True)
+fig.set_size_inches(12, 8)
+fig.savefig("umap_2nd_key_markers.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+for res in [0.5,0.6,0.7,0.8,0.9,1,1.5,2]:
+    sc.tl.leiden(carpall_one, key_added = "leiden_res_" + str(res), resolution = res, 
+    flavor = "igraph", n_iterations = 2, directed = False)
+```
+
+```{python}
+fig=sc.pl.umap(
+    carpall_one,
+    color=["leiden_res_0.5",
+     "leiden_res_1", "leiden_res_1.5"], 
+    size = 1, legend_fontsize="x-large", ncols=3, wspace=0.1, legend_loc="on data",frameon=False, return_fig=True
+)
+fig.set_size_inches(24, 6)
+print(fig.get_size_inches())
+fig.savefig("umap_2nd_clustering_resolutions.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+sc.tl.dendrogram(carpall_one, groupby = "leiden_res_0.5")
+sc.pl.dendrogram(carpall_one, groupby = "leiden_res_0.5")
+
+sc.tl.dendrogram(carpall_one, groupby = "leiden_res_1")
+sc.pl.dendrogram(carpall_one, groupby = "leiden_res_1")
+```
+
+```{python}
+pred_high = celltypist.annotate(
+    carpall_one,
+    model="Immune_All_High.pkl"
+)
+
+ad_high = pred_high.to_adata(insert_conf=True)
+
+carpall_one.obs["celltypist_high_label"] = ad_high.obs["predicted_labels"]
+carpall_one.obs["celltypist_high_score"] = ad_high.obs["conf_score"]
+
+pred_low = celltypist.annotate(
+    carpall_one,
+    model="Immune_All_Low.pkl"
+)
+
+ad_low = pred_low.to_adata(insert_conf=True)
+
+carpall_one.obs["celltypist_low_label"] = ad_low.obs["predicted_labels"]
+carpall_one.obs["celltypist_low_score"] = ad_low.obs["conf_score"]
+
+pred_covid = celltypist.annotate(
+    carpall_one,
+    model="COVID19_HumanChallenge_Blood.pkl"
+)
+
+ad_covid = pred_covid.to_adata(insert_conf=True)
+
+carpall_one.obs["celltypist_covid_label"] = ad_covid.obs["predicted_labels"]
+carpall_one.obs["celltypist_covid_score"] = ad_covid.obs["conf_score"]
+```
+
+```{python}
+fig = sc.pl.umap(carpall_one, color=["celltypist_high_label", "celltypist_low_label", "celltypist_covid_label"], 
+wspace=1,show=False, size = 1, ncols=3,frameon = False, return_fig = True)
+fig.set_size_inches(25, 10)
+print(fig.get_size_inches())
+fig.savefig("umap_2nd_celltypist.png", dpi=300, bbox_inches="tight")
+plt.close
+```
 
 # getting celltype proportions
 ```{python}
@@ -696,6 +839,19 @@ carpall_one.obs["celltypist_low_label_1pct"] = labels.where(
 ```
 
 ```{python}
+label_props = carpall_one.obs["celltypist_covid_label"].value_counts(normalize=True)
+
+major_labels = label_props[label_props >= 0.01].index
+
+labels = carpall_one.obs["celltypist_covid_label"].astype(str)
+
+carpall_one.obs["celltypist_covid_label_1pct"] = labels.where(
+    labels.isin(major_labels),
+    "Other"
+)
+```
+
+```{python}
 custom_palette = {
     "Tcm/Naive cytotoxic T cells" : "lime",
     "Tem/Trm cytotoxic T cells" : "palegreen",
@@ -717,6 +873,32 @@ wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True, palet
 fig.set_size_inches(12, 5)
 print(fig.get_size_inches())
 fig.savefig("umap_celltypist_low_1pct.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+covid_palette = {
+    "Monocyte CD14+":"gold",
+    "Monocyte CD16+":"olive",
+    "NK":"mediumpurple",
+    "T CD4 Helper 0":"deepskyblue",
+    "T CD4 Naive":"blue",
+    "T CD8 CM":"lightcoral",
+    "T CD8 CTL":"hotpink",
+    "T CD8 EM":"darkred",
+    "T CD8 EMRA":"orangered",
+    "T CD8 Naive":"mediumvioletred",
+    "T Double Negative":"lime",
+    "T G/D CM":"green",
+    "T G/D non-Dv2/Gv9":"palegreen",
+    "Other" : "grey"
+}
+
+fig = sc.pl.umap(carpall_one, color=["celltypist_covid_label_1pct", "celltypist_covid_score"], 
+wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True,palette=covid_palette)
+fig.set_size_inches(12, 5)
+print(fig.get_size_inches())
+fig.savefig("umap_celltypist_covid_1pct.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
@@ -782,4 +964,250 @@ p = (
 )
 
 p.save("celltypist_proportions_time_and_source.png", dpi=300, bbox_inches="tight")
+```
+
+# celltypist proportions per leiden cluster
+```{python}
+counts = pd.crosstab(
+    index=[carpall_one.obs["leiden_res_1"]],
+    columns=carpall_one.obs["celltypist_low_label_1pct"]
+)
+
+props = counts.div(counts.sum(axis=1), axis=0) * 100
+
+props = (
+    props
+    .reset_index()
+    .melt(
+        id_vars=["leiden_res_1"],
+        var_name="celltype",
+        value_name="percent"
+    )
+)
+```
+
+```{python}
+p = (
+    so.Plot(props, x="leiden_res_1", y="percent", color="celltype")
+    .scale(color=custom_palette)
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("celltypist_proportions_leiden_res_1.png", dpi=300, bbox_inches="tight")
+```
+
+```{python}
+counts = pd.crosstab(
+    index=[carpall_one.obs["leiden_res_1"]],
+    columns=carpall_one.obs["celltypist_covid_label_1pct"]
+)
+
+props = counts.div(counts.sum(axis=1), axis=0) * 100
+
+props = (
+    props
+    .reset_index()
+    .melt(
+        id_vars=["leiden_res_1"],
+        var_name="celltype",
+        value_name="percent"
+    )
+)
+```
+
+```{python}
+p = (
+    so.Plot(props, x="leiden_res_1", y="percent", color="celltype")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("covid_celltypist_proportions_leiden_res_1.png", dpi=300, bbox_inches="tight")
+```
+
+# proportion of car+ cells in each cluster
+```{python}
+counts = pd.crosstab(
+    index=[carpall_one.obs["leiden_res_1"]],
+    columns=carpall_one.obs["Sort"]
+)
+
+props = counts.div(counts.sum(axis=1), axis=0) * 100
+
+props = (
+    props
+    .reset_index()
+    .melt(
+        id_vars=["leiden_res_1"],
+        var_name="sort",
+        value_name="percent"
+    )
+)
+```
+
+```{python}
+p = (
+    so.Plot(props, x="leiden_res_1", y="percent", color="sort")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("sorted_proportions_leiden_res_1.png", dpi=300, bbox_inches="tight")
+```
+
+# of the clusters that look strange (mixed celltypist or high proportion of "other"), they are likely the returning cancer cells, so will look at their full celltypist annotation to see what else it thinks are there
+
+```{python}
+counts = pd.crosstab(
+    index=[carpall_one.obs["leiden_res_1"]],
+    columns=carpall_one.obs["celltypist_low_label"]
+)
+
+props = counts.div(counts.sum(axis=1), axis=0) * 100
+
+props = (
+    props
+    .reset_index()
+    .melt(
+        id_vars=["leiden_res_1"],
+        var_name="celltype",
+        value_name="percent"
+    )
+)
+keep = ["3", "4", "30", "31"]
+props = props[props["leiden_res_1"].isin(keep)]
+```
+
+```{python}
+p = (
+    so.Plot(props, x="leiden_res_1", y="percent", color="celltype")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("celltypist_proportions_potential_cancer_clusters.png", dpi=300, bbox_inches="tight")
+```
+
+# DEA of leiden clusters
+```{python}
+sc.tl.rank_genes_groups(
+    carpall_one, groupby="leiden_res_1", method="wilcoxon", key_added="dea_leiden_res_1"
+)
+
+sc.tl.filter_rank_genes_groups(
+    carpall_one,
+    min_in_group_fraction=0.25,
+    max_out_group_fraction=0.25,
+    key="dea_leiden_res_1",
+    key_added="dea_leiden_res_1_filtered",
+)
+```
+
+```{python}
+degs = sc.get.rank_genes_groups_df(
+    carpall_one,
+    group=None,
+    key="dea_leiden_res_1_filtered"
+)
+
+degs.to_csv("resolution_1_degs.csv", index=False)
+```
+
+```{python}
+sc.tl.dendrogram(
+    carpall_one,
+    groupby="leiden_res_1",
+)
+
+sc.pl.rank_genes_groups_dotplot(
+    carpall_one, groupby="leiden_res_1", standard_scale="var", n_genes=5, key="dea_leiden_res_1_filtered", cmap="mako"
+)
+plt.close
+```
+
+```{python}
+axes = sc.pl.correlation_matrix(
+    carpall_one,
+    groupby="leiden_res_1",
+    show=False
+)
+
+fig = axes[0].figure
+fig.set_size_inches(6, 6)
+
+print(fig.get_size_inches())
+
+fig.savefig(
+    "leiden_res_1_correlation_matrix.png",
+    dpi=300,
+    bbox_inches="tight"
+)
+```
+
+```{python}
+sc.pl.umap(carpall_one, color="leiden_res_1")
+```
+
+```{python}
+dp=sc.pl.dotplot(carpall_one, groupby="leiden_res_1", var_names=["CAT_scFv","CD3D", "CD3E", "CD8A", "CD4", "CCR7", "IL7R", "CD40LG", "GZMB", "GZMK", "GZMK", "PRF1", "TIGIT", "KLRC2", "NCAM1", "KLRB1", "SLC4A10", "LYZ", "S100A8", "CD14", "FCGR3A", "CLEC4C", "IL3RA", "CD68", "CD79A", "CD79B", "CSF3R","DNTT", "VPREB1", "IGHM", "MZB1", "TCF4", "MKI67"], dendrogram=True,
+standard_scale="var", return_fig=True, cmap = "mako_r")
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(12, 12)
+print(fig.get_size_inches())
+fig.savefig("resolution_1_key_genes_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+# broad annotation
+```{python}
+labels = {
+    "0":"Myeloid",
+    "1":"Myeloid",
+    "2":"Myeloid",
+    "3":"B-ALL relapse",
+    "4":"pDC",
+    "5":"CD8+ T",
+    "6":"Cycling CD8+ CAR T",
+    "7":"CD8+ T",
+    "8":"CD16lo NK",
+    "9":"CD8+ T",
+    "10":"CD8+ T",
+    "11":"CD8+ CAR T",
+    "12":"CD8+ CAR T",
+    "13":"CD4+ T",
+    "14":"CD4+ T",
+    "15":"CD4+ T",
+    "16":"CD8+ CAR T",
+    "17":"Naive T",
+    "18":"CD8+ CAR T",
+    "19":"CD8+ CAR T",
+    "20":"DN CAR T",
+    "21":"Mixed CAR T",
+    "22":"Mixed CAR T",
+    "23":"CD8+ CAR T",
+    "24":"CD8+ T",
+    "25":"MAIT",
+    "26":"DN CAR T",
+    "27":"CD16+ NK",
+    "28":"Mixed T",
+    "29":"DN T",
+    "30":"B-ALL relapse",
+    "31": "CD8+ CAR T",
+    "32":"CD8+ T"
+
+}
 ```
