@@ -1162,7 +1162,7 @@ sc.pl.umap(carpall_one, color="leiden_res_1")
 ```
 
 ```{python}
-dp=sc.pl.dotplot(carpall_one, groupby="leiden_res_1", var_names=["CAT_scFv","CD3D", "CD3E", "CD8A", "CD4", "CCR7", "IL7R", "CD40LG", "GZMB", "GZMK", "GZMK", "PRF1", "TIGIT", "KLRC2", "NCAM1", "KLRB1", "SLC4A10", "LYZ", "S100A8", "CD14", "FCGR3A", "CLEC4C", "IL3RA", "CD68", "CD79A", "CD79B", "CSF3R","DNTT", "VPREB1", "IGHM", "MZB1", "TCF4", "MKI67"], dendrogram=True,
+dp=sc.pl.dotplot(carpall_one, groupby="leiden_res_1", var_names=["CAT_scFv","CD3D", "CD3E", "CD8A", "CD4", "CCR7", "IL7R", "CD40LG", "GZMB", "GZMK", "GZMK", "PRF1", "TIGIT", "KLRC2", "NCAM1", "KLRB1", "SLC4A10", "LYZ", "S100A8", "CD14", "FCGR3A", "CLEC4C", "IL3RA", "CD68", "CD79A", "CD79B", "CSF3R","DNTT", "VPREB1", "IGHM", "MZB1", "TCF4", "MKI67", "TRDV2", "TRGV9", "TRDC"], dendrogram=True,
 standard_scale="var", return_fig=True, cmap = "mako_r")
 dp.make_figure()
 fig=dp.fig
@@ -1181,7 +1181,7 @@ labels = {
     "3":"B-ALL relapse",
     "4":"pDC",
     "5":"CD8+ T",
-    "6":"Cycling CD8+ CAR T",
+    "6":"Cycling DN CAR T",
     "7":"CD8+ T",
     "8":"CD16lo NK",
     "9":"CD8+ T",
@@ -1189,29 +1189,34 @@ labels = {
     "11":"CD8+ CAR T",
     "12":"CD8+ CAR T",
     "13":"CD4+ T",
-    "14":"CD4+ T",
+    "14":"Mixed T",
     "15":"CD4+ T",
     "16":"CD8+ CAR T",
-    "17":"Naive T",
-    "18":"CD8+ CAR T",
+    "17":"Naive Mixed T",
+    "18":"VD2- GD T",
     "19":"CD8+ CAR T",
     "20":"DN CAR T",
     "21":"Mixed CAR T",
     "22":"Mixed CAR T",
     "23":"CD8+ CAR T",
     "24":"CD8+ T",
-    "25":"MAIT",
+    "25":"VD2+ GD T",
     "26":"DN CAR T",
     "27":"CD16+ NK",
     "28":"Mixed T",
-    "29":"DN T",
+    "29":"VD2- GD T",
     "30":"B-ALL relapse",
-    "31": "CD8+ CAR T",
+    "31":"CD8+ CAR T",
     "32":"CD8+ T"
 
 }
 
-carpall_one.obs["broad_labels"] = carpall_one.obs["leiden_res_1"].map(labels)
+carpall_one.obs["broad_labels"] = (
+    carpall_one.obs["leiden_res_1"]
+    .map(labels)
+    .astype("category")
+)
+sc.tl.dendrogram(carpall_one, groupby="broad_labels")
 ```
 
 ```{python}
@@ -1243,15 +1248,15 @@ plt.close
 label_palette = {
     "Myeloid":"gold",
     "CD8+ CAR T":"darkred",
-    "Cycling CD8+ CAR T":"orangered",
+    "Cycling DN CAR T":"darkseagreen",
     "CD8+ T":"red",
     "CD4+ T":"blue",
     "Mixed CAR T":"teal",
     "Mixed T":"skyblue",
     "DN CAR T":"springgreen",
-    "DN T":"green",
-    "MAIT":"greenyellow",
-    "Naive T":"lightcoral",
+    "VD2- GD T":"green",
+    "VD2+ GD T":"greenyellow",
+    "Naive Mixed T":"lightcoral",
     "CD16+ NK":"darkorchid",
     "CD16lo NK":"mediumpurple",
     "B-ALL relapse":"grey",
@@ -1260,8 +1265,48 @@ label_palette = {
 
 fig = sc.pl.umap(carpall_one, color=["broad_labels"], 
 wspace=1,show=False, size = 1, ncols=1,frameon = False, return_fig = True,palette=label_palette)
-fig.set_size_inches(12, 5)
+fig.set_size_inches(10, 5)
 print(fig.get_size_inches())
 fig.savefig("umap_broad_annotation.png", dpi=300, bbox_inches="tight")
 plt.close
+```
+
+```{python}
+dp=sc.pl.dotplot(carpall_one, groupby="broad_labels", var_names=["CAT_scFv","CD3D", "CD3E", "CD8A", "CD4", "CCR7", "IL7R", "CD40LG", "GZMB", "GZMK", "PRF1", "TIGIT", "KLRC2", "NCAM1", "TRDV2", "TRGV9", "TRDC", "LYZ", "S100A8", "CD14", "FCGR3A", "CLEC4C", "IL3RA", "CD79A", "CD79B", "CSF3R", "IGHM", "MZB1", "TCF4", "MKI67"], dendrogram=True,
+standard_scale="var", return_fig=True, cmap = "mako_r")
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(8, 10)
+print(fig.get_size_inches())
+fig.savefig("broad_labels_key_genes_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+counts = pd.crosstab(
+    carpall_one.obs["Timepoint_bin"],
+    carpall_one.obs["broad_labels"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "Timepoint_bin", var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="Timepoint_bin", y="percent", color="celltype")
+    .scale(color=label_palette)
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("broad_labels_proportions_time.png", dpi=300, bbox_inches="tight")
 ```
