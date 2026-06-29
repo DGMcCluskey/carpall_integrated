@@ -1312,6 +1312,35 @@ p.save("broad_labels_proportions_time.png", dpi=300, bbox_inches="tight")
 ```
 
 ```{python}
+counts = pd.crosstab(
+    carpall_one.obs["Patient"],
+    carpall_one.obs["broad_labels"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "Patient", var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="Patient", y="percent", color="celltype")
+    .scale(color=label_palette)
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("broad_labels_proportions_patient.png", dpi=300, bbox_inches="tight")
+```
+
+```{python}
 sort_map = {
     "CD3+CAT+": "CAR+",
     "CD3+CAT-": "CAR-",
@@ -1385,6 +1414,17 @@ fig.savefig(
 ```
 
 ```{python}
+sc.tl.embedding_density(carpall_one, basis="umap", groupby="Timepoint_bin")
+
+fig=sc.pl.embedding_density(carpall_one, basis="umap", key="umap_density_Timepoint_bin", group=["Early", "Mid", "Late"], return_fig=True)
+fig.set_size_inches(15, 5)
+print(fig.get_size_inches())
+fig.savefig("umap_time_density.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+
+```{python}
 for k in [
     "dea_leiden_res_1",
     "dea_leiden_res_1_filtered",
@@ -1393,4 +1433,10 @@ for k in [
     carpall_one.uns.pop(k, None)
 #carpall_one.write_h5ad("5_carpall_annotated.h5ad")
 carpall_one = sc.read_h5ad("5_carpall_annotated.h5ad")
+```
+
+# subset out CAR+ cells for separate analysis
+```{python}
+cars = carpall_one[carpall_one.obs["Sort_clean"] == "CAR+"].copy()
+cars.write_h5ad("1_cars_only.h5ad")
 ```
