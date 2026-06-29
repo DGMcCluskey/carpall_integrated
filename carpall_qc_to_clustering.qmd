@@ -1197,7 +1197,7 @@ labels = {
     "19":"CD8+ CAR T",
     "20":"DN CAR T",
     "21":"Mixed CAR T",
-    "22":"Mixed CAR T",
+    "22":"Mixed T",
     "23":"CD8+ CAR T",
     "24":"CD8+ T",
     "25":"VD2+ GD T",
@@ -1363,6 +1363,25 @@ fig.set_size_inches(12, 5)
 print(fig.get_size_inches())
 fig.savefig("umap_sort_clean.png", dpi=300, bbox_inches="tight")
 plt.close
+```
+
+```{python}
+axes = sc.pl.correlation_matrix(
+    carpall_one,
+    groupby="broad_labels",
+    show=False
+)
+
+fig = axes[0].figure
+fig.set_size_inches(6, 6)
+
+print(fig.get_size_inches())
+
+fig.savefig(
+    "broad_labels_correlation_matrix.png",
+    dpi=300,
+    bbox_inches="tight"
+)
 ```
 
 ```{python}
