@@ -1,0 +1,148 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{python}
+import decoupler as dc
+import scanpy as sc
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+```
+
+```{python}
+cars = sc.read_h5ad("2_car_only_annotated_v2.h5ad")
+```
+
+```{python}
+collectri = pd.read_csv("../CollecTRI_regulons.csv")
+collectri.head()
+```
+
+```{python}
+dc.mt.ulm(data=cars, net=collectri)
+```
+
+```{python}
+score = dc.pp.get_obsm(adata=cars, key="score_ulm")
+score
+```
+
+```{python}
+df = dc.tl.rankby_group(adata=score, groupby="Timepoint_bin", reference="rest", method="t-test_overestim_var")
+df = df[df["padj"] < 0.05]
+df
+```
+
+```{python}
+n_markers = 10
+source_markers = (
+    df.groupby("group")
+    .head(n_markers)
+    .drop_duplicates("name")
+    .groupby("group")["name"]
+    .apply(lambda x: list(x))
+    .to_dict()
+)
+source_markers
+```
+
+```{python}
+plt.figure(figsize=(8,8))
+sc.pl.matrixplot(
+    adata=score,
+    var_names=source_markers,
+    groupby="Timepoint_bin",
+    dendrogram=True,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r",
+    swap_axes=True
+)
+plt.savefig("tf_enrichment/alltimepoints_tfs_heatmap.png", dpi=300)
+plt.close()
+```
+
+```{python}
+sc.pl.violin(score, keys ="NOTO", groupby="labels",rotation=45)
+```
+
+```{python}
+gex_dn = cars[cars.obs["Timepoint_bin"] == "Late"].to_df().mean(0).to_frame().T
+score_dn = score[score.obs["Timepoint_bin"] == "Late"].to_df().mean(0).to_frame().T
+
+dc.pl.network(
+    data=gex_dn,
+    score=score_dn,
+    net=collectri,
+    sources=5,
+    targets=10,
+    size_node=5,
+    figsize=(5, 5),
+    s_cmap="viridis",
+    t_cmap="RdBu_r"
+)
+```
+
+```{python}
+late = df[(df["group"] == "Late")]
+
+top_up = late.nlargest(10, "stat")
+top_down = late.nsmallest(10, "stat")
+
+plot_df = pd.concat([top_down, top_up])
+plot_df["name"] = plot_df["name"].cat.remove_unused_categories()
+plot_df = plot_df.sort_values("stat")
+```
+
+```{python}
+order = plot_df.sort_values("stat")["name"]
+plt.figure(figsize=(8,6))
+sns.barplot(plot_df, x = "stat", y = "name", hue = "stat", palette="RdBu_r", order=order)
+plt.savefig("tf_enrichment/late_top_de_tf.png", dpi=300)
+plt.close()
+```
+
+```{python}
+plt.figure(figsize=(10,4))
+sc.pl.matrixplot(
+    adata=score,
+    var_names=plot_df.name,
+    groupby="Timepoint_bin",
+    dendrogram=True,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r",
+)
+plt.savefig("tf_enrichment/late_tfs_heatmap.png", dpi=300)
+plt.close()
+```
+
+```{python}
+gex_late = cars[cars.obs["Timepoint_bin"] == "Late"].to_df().mean(0).to_frame().T
+score_late = score[score.obs["Timepoint_bin"] == "Late"].to_df().mean(0).to_frame().T
+
+sources = list(plot_df.name)
+source_list = ["MYC", "HOXA2","E2F4","NFYB","NOTO"]
+
+dc.pl.network(
+    net=collectri,
+    data=gex_late,
+    score=score_late,
+    sources=source_list,
+    targets=10,
+    size_node=8,
+    size_label=0,
+    figsize=(5, 4),
+    layout="kk",
+    s_cmap="RdPu",
+    vcenter=False,
+    t_cmap="GnBu",
+    s_label="TF activity",
+    t_label="log-normalized expression",
+    save="tf_enrichment/late_tf_network.png"
+)
+```

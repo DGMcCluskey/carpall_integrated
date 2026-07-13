@@ -1,0 +1,127 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{r}
+library(anndataR)
+library(SingleCellExperiment)
+library(slingshot)
+library(dplyr)
+library(igraph)
+library(ggplot2)
+```
+
+```{r}
+adata <- read_h5ad("2_car_only_annotated_v2.h5ad", as = "SingleCellExperiment")
+adata
+```
+
+```{r}
+dimred <- reducedDim(adata, "X_umap")
+clustering <- adata$labels
+counts <- assay(adata, "counts")
+```
+
+```{r}
+set.seed(61)
+sce <- SingleCellExperiment(
+  assays = list(counts = counts)
+)
+
+reducedDim(sce, "UMAP") <- dimred
+colData(sce)$labels <- clustering
+
+sce <- slingshot(
+  sce,
+  clusterLabels = "labels",
+  reducedDim = "UMAP",
+  start.clus = "Product Mixed T"
+)
+```
+
+### summary of results
+```{r}
+SlingshotDataSet(sce)
+```
+
+### save object to not have to run again
+```{r}
+saveRDS(sce, file = "car_only/car_slingshot_object.rds")
+```
+
+```{r}
+palette <- ggsci::pal_d3("category20")(20)
+
+# Create a color lookup table
+cluster_cols <- setNames(
+  palette[seq_along(levels(clustering))],
+  levels(clustering)
+)
+
+# Assign a color to each cell based on its cluster
+cell_cols <- cluster_cols[as.character(clustering)]
+```
+
+```{r}
+mst <- slingMST(sce)
+
+nodes <- data.frame(
+  cluster = V(mst)$name,
+  do.call(rbind, vertex_attr(mst, "coordinates"))
+)
+
+colnames(nodes)[2:3] <- c("UMAP_1", "UMAP_2")
+
+nodes
+```
+
+```{r}
+edge_list <- as.data.frame(get.edgelist(mst))
+
+colnames(edge_list) <- c("from", "to")
+```
+
+```{r}
+edges <- edge_list %>%
+  left_join(nodes, by = c("from" = "cluster")) %>%
+  rename(x = UMAP_1, y = UMAP_2) %>%
+  left_join(nodes, by = c("to" = "cluster")) %>%
+  rename(xend = UMAP_1, yend = UMAP_2)
+
+edges
+```
+
+```{r}
+cell_df <- data.frame(
+  UMAP_1 = reducedDim(sce, "UMAP")[,1],
+  UMAP_2 = reducedDim(sce, "UMAP")[,2],
+  labels = sce$labels
+)
+
+p <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+  geom_point(aes(colour = labels), size = 0.3) +
+  geom_segment(
+    data = edges,
+    aes(
+      x = x,
+      y = y,
+      xend = xend,
+      yend = yend
+    ),
+    inherit.aes = FALSE,
+    linewidth = 1.2,
+    colour = "black"
+  ) +
+    geom_point(
+    data = nodes,
+    aes(UMAP_1, UMAP_2),
+    inherit.aes = FALSE,
+    size = 4,
+    colour = "black"
+  ) +
+  scale_colour_manual(values = cluster_cols) +
+  theme_classic()
+p
+ggsave(plot=p, filename = "car_only/pseudotime_MST_umap.png", dpi = 300, height = 6, width = 8)
+```

@@ -1,0 +1,523 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{python}
+import scanpy as sc
+import numpy as np
+import anndata as ad
+import pandas as pd
+import os
+import seaborn as sns
+from seaborn import objects as so
+import matplotlib.pyplot as plt
+import scvi
+import harmonypy as hm
+from pyclustree import clustree
+```
+
+```{python}
+cars = sc.read_h5ad("1_cars_only.h5ad")
+```
+
+```{python}
+cars.X = cars.layers["counts"].copy()
+```
+
+```{python}
+sc.pp.normalize_total(cars, target_sum=1e4)
+sc.pp.log1p(cars)
+cars.layers['logcounts'] = cars.X.copy()
+```
+
+```{python}
+plt.figure()
+sns.histplot(
+        cars.layers['counts'].sum(1), bins=500, kde=False
+    )
+plt.show()
+
+plt.figure()
+sns.histplot(
+        cars.layers['logcounts'].sum(1), bins=500, kde=False
+    )
+plt.show()
+```
+
+```{python}
+sc.pp.highly_variable_genes(
+    cars, 
+    n_top_genes=2000, 
+    flavor="cell_ranger", 
+    batch_key='GEX_id', 
+    layer = 'logcounts',
+    subset = False
+)
+```
+
+```{python}
+cars_hvg = cars[:, cars.var.highly_variable].copy()
+
+sc.pp.regress_out(cars_hvg, ["pct_counts_mt"])
+sc.pp.scale(cars_hvg)
+sc.pp.pca(cars_hvg)
+```
+
+```{python}
+cars.obsm["X_pca"] = cars_hvg.obsm["X_pca"]
+cars.uns["pca"] = cars_hvg.uns["pca"]
+```
+
+```{python}
+plt.figure()
+sc.pl.pca_variance_ratio(cars, n_pcs=50, log=True)
+plt.savefig("car_only/Elbow_plot.png", dpi=300)
+```
+
+```{python}
+sc.pp.neighbors(cars, n_pcs=18, use_rep="X_pca")
+sc.tl.umap(cars, random_state=2026)
+```
+
+```{python}
+fig = sc.pl.umap(cars, color=["Patient", "Timepoint_bin", "Sort", "Source"], 
+wspace=0.5,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(12, 6)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_meta.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+fig=sc.pl.umap(cars, color = ["CAT_scFv", "CD3D", "CD8A", "CD8B", "CD4", "TRDC", "CCR7", "SELL", "IL7R", "TCF7", "GZMB", "GZMK", "TIGIT", "NCAM1", "KLRC2", "LYZ"], layer = "logcounts", legend_fontsize="x-large", size = 1, ncols = 4, frameon = False, cmap = "rocket", return_fig=True)
+fig.set_size_inches(12, 8)
+fig.savefig("car_only/umap_key_markers.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+for res in [0.5]:
+    sc.tl.leiden(cars, key_added = "leiden_res_" + str(res), resolution = res, 
+    flavor = "igraph", n_iterations = 2, directed = False)
+```
+
+```{python}
+fig=sc.pl.umap(
+    cars,
+    color=["leiden_res_0.5"], 
+    size = 1, legend_fontsize="x-large", ncols=1, wspace=0.1, legend_loc="on data",frameon=False, return_fig=True
+)
+fig.set_size_inches(24, 6)
+print(fig.get_size_inches())
+fig.savefig("car_only/initial_clustering_resolutions.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+
+```{python}
+to_remove = ["12"]
+cars = cars[~cars.obs["leiden_res_0.5"].isin(to_remove)].copy()
+```
+
+```{python}
+cars.X = cars.layers["counts"].copy()
+sc.pp.normalize_total(cars, target_sum=1e4)
+sc.pp.log1p(cars)
+cars.layers['logcounts'] = cars.X.copy()
+```
+
+```{python}
+cars_hvg = cars[:, cars.var.highly_variable].copy()
+
+sc.pp.regress_out(cars_hvg, ["pct_counts_mt"])
+sc.pp.scale(cars_hvg)
+sc.pp.pca(cars_hvg)
+```
+
+```{python}
+cars.obsm["X_pca"] = cars_hvg.obsm["X_pca"]
+cars.uns["pca"] = cars_hvg.uns["pca"]
+```
+
+```{python}
+plt.figure()
+sc.pl.pca_variance_ratio(cars, n_pcs=50, log=True)
+plt.savefig("car_only/Elbow_plot.png", dpi=300)
+plt.close()
+```
+
+```{python}
+sc.pp.neighbors(cars, n_pcs=15, use_rep="X_pca")
+sc.tl.umap(cars, random_state=2026)
+```
+
+```{python}
+fig = sc.pl.umap(cars, color=["Patient", "Timepoint_bin", "Sort", "Source"], 
+wspace=0.5,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(12, 6)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_meta.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+fig=sc.pl.umap(cars, color = ["CAT_scFv", "CD3D", "CD8A", "CD8B", "CD4", "TRDC", "CCR7", "SELL", "IL7R", "TCF7", "GZMB", "GZMK", "TIGIT", "NCAM1", "KLRC2", "LYZ"], layer = "logcounts", legend_fontsize="x-large", size = 1, ncols = 4, frameon = False, cmap = "rocket", return_fig=True)
+fig.set_size_inches(12, 8)
+fig.savefig("car_only/2nd_round_umap_key_markers.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+for res in [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1]:
+    sc.tl.leiden(cars, key_added = "leiden_res_" + str(res), resolution = res, 
+    flavor = "igraph", n_iterations = 2, directed = False)
+```
+
+```{python}
+fig = sc.pl.umap(cars, color=["broad_labels"], 
+wspace=0.5,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(12, 6)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_broad_labels.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+cluster_keys = [
+    "leiden_res_0.1",
+    "leiden_res_0.2",
+    "leiden_res_0.3",
+    "leiden_res_0.4",
+    "leiden_res_0.5",
+    "leiden_res_0.6",
+    "leiden_res_0.7",
+    "leiden_res_0.8",
+    "leiden_res_0.9",
+    "leiden_res_1"
+]
+
+fig = clustree(
+    cars,
+    cluster_keys,
+    edge_weight_threshold=0.1,
+    show_fraction=True,
+    x_spacing=5,
+    y_spacing=0.2,show_cluster_keys=False
+)
+fig.set_size_inches(15, 10)
+print(fig.get_size_inches())
+fig.savefig("car_only/clustree.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+fig=sc.pl.umap(
+    cars,
+    color=["leiden_res_0.5", "leiden_res_0.6", "leiden_res_0.7"], 
+    size = 1, legend_fontsize="x-large", ncols=1, wspace=0.1, legend_loc="on data",frameon=False, return_fig=True
+)
+fig.set_size_inches(7, 16)
+print(fig.get_size_inches())
+fig.savefig("car_only/clustering_resolutions.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+sc.tl.dendrogram(
+    cars,
+    groupby="leiden_res_0.6",
+)
+```
+
+```{python}
+dp=sc.pl.dotplot(cars, groupby="leiden_res_0.6", var_names=["CD8A", "CD4", "SELL", "CCR7", "TCF7", "IL7R", "CD27", "CD28", "GPR183", "CCL5", "GZMB", "GZMK", "GZMH", "GNLY", "PRF1", "EOMES", "TIGIT", "HAVCR2", "PDCD1", "LAG3", "KLRC2", "NCAM1", "TRDV2", "TRGV9", "TRDC", "MKI67", "CD69", "FOS", "FOSB", "JUN", "SLC7A5", "DUSP4", "FAS"], dendrogram=True,
+standard_scale="var", return_fig=True, cmap = "mako_r")
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(8, 10)
+print(fig.get_size_inches())
+fig.savefig("car_only/res_0.6_key_genes_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+sc.tl.rank_genes_groups(
+    cars, groupby="leiden_res_0.6", method="wilcoxon", key_added="dea_leiden_res_0.6"
+)
+
+sc.tl.filter_rank_genes_groups(
+    cars,
+    min_in_group_fraction=0.25,
+    max_out_group_fraction=0.25,
+    key="dea_leiden_res_0.6",
+    key_added="dea_leiden_res_0.6_filtered",
+)
+```
+
+```{python}
+degs = sc.get.rank_genes_groups_df(
+    cars,
+    group=None,
+    key="dea_leiden_res_0.6_filtered"
+)
+
+degs.to_csv("resolution_0.6_degs.csv", index=False)
+```
+
+```{python}
+sc.tl.dendrogram(
+    cars,
+    groupby="leiden_res_0.6",
+)
+
+dp=sc.pl.rank_genes_groups_dotplot(
+    cars, groupby="leiden_res_0.6", standard_scale="var", n_genes=5, key="dea_leiden_res_0.6_filtered", return_fig=True
+)
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(24, 8)
+print(fig.get_size_inches())
+fig.savefig("car_only/resolution_0.6_degs_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+import celltypist
+from celltypist import models
+
+models.download_models(
+    force_update=True, 
+    model=["Immune_All_High.pkl"]
+)
+model_immune_high = models.Model.load(model="Immune_All_High.pkl")
+
+models.download_models(
+    force_update=True, 
+    model=["Immune_All_Low.pkl"]
+)
+model_immune_low = models.Model.load(model="Immune_All_Low.pkl")
+
+models.download_models(
+    force_update=True, 
+    model=["COVID19_HumanChallenge_Blood.pkl"]
+)
+model_covid = models.Model.load(model="COVID19_HumanChallenge_Blood.pkl")
+```
+
+```{python}
+pred_high = celltypist.annotate(
+    cars,
+    model="Immune_All_High.pkl"
+)
+
+ad_high = pred_high.to_adata(insert_conf=True)
+
+cars.obs["celltypist_high_label"] = ad_high.obs["predicted_labels"]
+cars.obs["celltypist_high_score"] = ad_high.obs["conf_score"]
+
+pred_low = celltypist.annotate(
+    cars,
+    model="Immune_All_Low.pkl"
+)
+
+ad_low = pred_low.to_adata(insert_conf=True)
+
+cars.obs["celltypist_low_label"] = ad_low.obs["predicted_labels"]
+cars.obs["celltypist_low_score"] = ad_low.obs["conf_score"]
+
+pred_covid = celltypist.annotate(
+    cars,
+    model="COVID19_HumanChallenge_Blood.pkl"
+)
+
+ad_covid = pred_covid.to_adata(insert_conf=True)
+
+cars.obs["celltypist_covid_label"] = ad_covid.obs["predicted_labels"]
+cars.obs["celltypist_covid_score"] = ad_covid.obs["conf_score"]
+```
+
+```{python}
+fig = sc.pl.umap(cars, color=["celltypist_high_label", "celltypist_low_label", "celltypist_covid_label"], 
+wspace=1,show=False, size = 1, ncols=3,frameon = False, return_fig = True)
+fig.set_size_inches(25, 10)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_celltypist.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+label_props = cars.obs["celltypist_high_label"].value_counts(normalize=True)
+
+major_labels = label_props[label_props >= 0.05].index
+
+labels = cars.obs["celltypist_high_label"].astype(str)
+
+cars.obs["celltypist_high_label_5pct"] = labels.where(
+    labels.isin(major_labels),
+    "Other"
+)
+```
+
+```{python}
+label_props = cars.obs["celltypist_low_label"].value_counts(normalize=True)
+
+major_labels = label_props[label_props >= 0.01].index
+
+labels = cars.obs["celltypist_low_label"].astype(str)
+
+cars.obs["celltypist_low_label_1pct"] = labels.where(
+    labels.isin(major_labels),
+    "Other"
+)
+```
+
+```{python}
+label_props = cars.obs["celltypist_covid_label"].value_counts(normalize=True)
+
+major_labels = label_props[label_props >= 0.05].index
+
+labels = cars.obs["celltypist_covid_label"].astype(str)
+
+cars.obs["celltypist_covid_label_5pct"] = labels.where(
+    labels.isin(major_labels),
+    "Other"
+)
+```
+
+```{python}
+fig = sc.pl.umap(cars, color=["celltypist_low_label_1pct", "celltypist_low_score"], 
+wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True, palette = "tab20")
+fig.set_size_inches(12, 5)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_celltypist_low_1pct.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+fig = sc.pl.umap(cars, color=["celltypist_covid_label_1pct", "celltypist_covid_score"], 
+wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True, palette = "tab20")
+fig.set_size_inches(12, 5)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_celltypist_covid_1pct.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+counts = pd.crosstab(
+    cars.obs["leiden_res_0.6"],
+    cars.obs["celltypist_covid_label_1pct"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "leiden_res_0.6", var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="leiden_res_0.6", y="percent", color="celltype")
+    .scale(color="tab20")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("car_only/covid_celltypist_proportions_res_0.6.png", dpi=300, bbox_inches="tight")
+```
+
+```{python}
+labels = {
+    "0":"CM CD8+ T (1)",
+    "1":"Activated CM CD8+ T",
+    "2":"Early EM CD8+ T",
+    "3":"Naive/CM CD8+ T",
+    "4":"DN T",
+    "5":"Cycling T",
+    "6":"DN/CD8+ T",
+    "7":"Naive/CM Mixed T",
+    "8":"Product CD8+ T",
+    "9":"CTL",
+    "10":"EM CD8+ T",
+    "11":"CM CD8+ T (2)",
+    "12":"DN T",
+    "13":"g/d T",
+    "14":"Product Mixed T",
+    "15":"CTL",
+    "16":"Exhausted EM CD8+ T",
+    "17":"Product Mixed T"
+}
+
+cars.obs["labels"] = (
+    cars.obs["leiden_res_0.6"]
+    .map(labels)
+    .astype("category")
+)
+sc.tl.dendrogram(cars, groupby="labels")
+```
+
+```{python}
+fig = sc.pl.umap(cars, color=["labels"], 
+wspace=1,show=False, size = 1, ncols=1,frameon = False, return_fig = True, palette="tab20")
+fig.set_size_inches(8, 5)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_annotated.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+dp=sc.pl.dotplot(cars, groupby="labels", var_names=["CD8A", "CD4", "SELL", "CCR7", "TCF7", "IL7R", "CD27", "CD28", "GPR183", "ITGAE", "SELPLG", "CCL5", "GZMB", "GZMK", "GZMH", "GNLY", "PRF1", "EOMES", "TIGIT", "HAVCR2", "PDCD1", "LAG3","TRGV9", "TRDC", "MKI67", "CD69", "FOS", "FOSB", "JUN", "SLC7A5", "DUSP4"], dendrogram=True,
+standard_scale="var", return_fig=True, cmap = "mako_r")
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(8, 10)
+print(fig.get_size_inches())
+fig.savefig("car_only/labels_key_genes_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+for k in [
+    "dea_leiden_res_0.6",
+    "dea_leiden_res_0.6_filtered",
+    "dendrogram_leiden_res_0.6"
+]:
+    cars.uns.pop(k, None)
+cars.write_h5ad("2_car_only_annotated.h5ad")
+cars = sc.read_h5ad("2_car_only_annotated.h5ad")
+```
+
+```{python}
+counts = pd.crosstab(
+    cars.obs["Timepoint_bin"],
+    cars.obs["labels"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "Timepoint_bin", var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="Timepoint_bin", y="percent", color="celltype")
+    .scale(color="tab20")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+
+p.save("car_only/labels_proportions_time.png", dpi=300, bbox_inches="tight")
+```
