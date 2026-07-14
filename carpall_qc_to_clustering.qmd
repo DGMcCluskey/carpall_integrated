@@ -1391,6 +1391,71 @@ p = (
 p.save("labels_sort_proportions_time.png", dpi=300, bbox_inches="tight")
 ```
 
+# timepoint proportions but at the patient level within the car+ fraction
+
+```{python}
+cars = carpall_one[carpall_one.obs["Sort_clean"] == "CAR+"].copy()
+```
+
+```{python}
+counts = pd.crosstab(
+    [cars.obs["Timepoint_bin"], cars.obs["Patient"]],
+    cars.obs["broad_labels"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = ["Timepoint_bin", "Patient"], var_name = "celltype", value_name = "percent")
+props.groupby(["Timepoint_bin", "Patient"])["percent"].sum()
+to_keep = ["DN CAR T", "CD8+ CAR T"]
+dn_props = props[props["celltype"].isin(to_keep)].copy()
+```
+
+```{python}
+print(dn_props["celltype"].unique())
+g = sns.catplot(
+    data=dn_props,
+    x="Timepoint_bin",
+    y="percent",
+    col="celltype",
+    kind="box",
+    col_wrap=1,
+    hue = "Timepoint_bin",
+    palette = "YlGnBu_r",
+    showfliers=False,
+    height=2.5,
+    aspect=1
+)
+
+g.map_dataframe(
+    sns.stripplot,
+    x="Timepoint_bin",
+    y="percent",
+    color="black",      # or hue="Patient" if you want each patient coloured
+    jitter=0.2,
+    size=4,
+    alpha=1,
+)
+
+for ax in g.axes.flat:
+    ax.tick_params(axis="x", rotation=45)
+
+g.figure.set_size_inches(3, 6)
+g.set_ylabels("Percentage of CAR+ cells")
+
+plt.savefig(
+    "proportions_time_patient_level_boxplots.png",
+    dpi=300,
+    bbox_inches="tight"
+)
+plt.close()
+```
+
+
 ```{python}
 fig = sc.pl.umap(carpall_one, color=["Sort_clean"], 
 wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
@@ -1398,6 +1463,24 @@ fig.set_size_inches(12, 5)
 print(fig.get_size_inches())
 fig.savefig("umap_sort_clean.png", dpi=300, bbox_inches="tight")
 plt.close
+```
+
+# stats on celltype proportions
+```{python}
+import statsmodels.formula.api as smf
+
+for celltype in ["DN CAR T", "CD8+ CAR T"]:
+    df = props[props["celltype"] == celltype].copy()
+
+    model = smf.mixedlm(
+        "percent ~ C(Timepoint_bin)",
+        data=df,
+        groups="Patient",
+    )
+
+    result = model.fit()
+    print(f"\n{celltype}")
+    print(result.summary())
 ```
 
 ```{python}
@@ -1417,6 +1500,104 @@ fig.savefig(
     dpi=300,
     bbox_inches="tight"
 )
+```
+
+# will look at exact timepoint for the late DN cells, to see if variability is explained by HOW late the sample is
+```{python}
+counts = pd.crosstab(
+    [cars.obs["Timepoint"], cars.obs["Patient"]],
+    cars.obs["broad_labels"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = ["Timepoint", "Patient"], var_name = "celltype", value_name = "percent")
+props.groupby(["Timepoint", "Patient"])["percent"].sum()
+to_keep = ["DN CAR T"]
+dn_props = props[props["celltype"].isin(to_keep)].copy()
+```
+
+```{python}
+dn_props["celltype"] = dn_props["celltype"].astype("category")
+dn_props["celltype"] = dn_props["celltype"].cat.remove_unused_categories()
+dn_props["Timepoint_months"] = (
+    dn_props["Timepoint"]
+    .str.replace("M", "", regex=False)
+    .astype(int)
+)
+```
+
+```{python}
+plt.close("all")
+plt.figure(figsize=(8,5))
+
+ax=sns.lineplot(
+    data=dn_props,
+    x="Timepoint_months",
+    y="percent",
+    hue="Patient",
+    marker="o"
+)
+
+ax.axvline(
+    x=7,              # month where you want the line
+    linestyle="--",
+    color="black",
+    linewidth=1
+)
+
+plt.xlabel("Months post infusion")
+plt.ylabel("Percentage of DN CAR T cells (%)")
+
+plt.show()
+plt.savefig("DN_CAR_timepoint_patient.png", dpi=300, bbox_inches="tight")
+plt.close()
+```
+
+```{python}
+plt.figure(figsize=(6,5))
+
+sns.regplot(
+    data=dn_props,
+    x="Timepoint_months",
+    y="percent",
+    scatter_kws={"s":10},
+    line_kws={"color":"red"},
+    color="black"
+)
+
+plt.xlabel("Months post infusion")
+plt.ylabel("DN CAR T cells (%)")
+
+plt.show()
+plt.savefig("DN_prop_time_spearman_corr.png", dpi=300)
+```
+
+```{python}
+model = smf.mixedlm(
+    "percent ~ Timepoint_months",
+    data=dn_props,
+    groups=dn_props["Patient"]
+)
+
+result = model.fit()
+print(result.summary())
+```
+
+```{python}
+from scipy.stats import spearmanr
+
+rho, p = spearmanr(
+    dn_props["Timepoint_months"],
+    dn_props["percent"]
+)
+
+print(f"Spearman rho = {rho:.3f}")
+print(f"p = {p:.3e}")
 ```
 
 ```{python}
