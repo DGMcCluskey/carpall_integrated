@@ -82,11 +82,45 @@ sc.tl.umap(cars, random_state=2026)
 
 ```{python}
 fig = sc.pl.umap(cars, color=["Patient", "Timepoint_bin", "Sort", "Source"], 
-wspace=0.5,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
-fig.set_size_inches(12, 6)
+wspace=0.2,show=False, size = 1, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(10, 6)
 print(fig.get_size_inches())
 fig.savefig("car_only/umap_meta.png", dpi=300, bbox_inches="tight")
 plt.close
+```
+
+# plotting some metrics
+```{python}
+cell_counts = (
+    cars.obs
+    .groupby(["Patient"])
+    .size()
+    .reset_index(name="n_cells")
+)
+
+cell_counts.head()
+```
+
+```{python}
+plt.close()
+ax = sns.barplot(
+    data=cell_counts,
+    y="n_cells",
+    x="Patient",
+    hue="Patient",
+    #palette="YlGnBu_r"
+)
+
+ax.figure.set_size_inches(4,3)
+
+plt.savefig(
+    "car_only/cells_numbers_by_patient.png",
+    dpi=300,
+    bbox_inches="tight"
+)
+
+plt.show()
+plt.close()
 ```
 
 ```{python}
@@ -231,7 +265,7 @@ sc.tl.dendrogram(
 ```
 
 ```{python}
-dp=sc.pl.dotplot(cars, groupby="leiden_res_0.6", var_names=["CD8A", "CD4", "SELL", "CCR7", "TCF7", "IL7R", "CD27", "CD28", "GPR183", "CCL5", "GZMB", "GZMK", "GZMH", "GNLY", "PRF1", "EOMES", "TIGIT", "HAVCR2", "PDCD1", "LAG3", "KLRC2", "NCAM1", "TRDV2", "TRGV9", "TRDC", "MKI67", "CD69", "FOS", "FOSB", "JUN", "SLC7A5", "DUSP4", "FAS"], dendrogram=True,
+dp=sc.pl.dotplot(cars, groupby="leiden_res_0.6", var_names=["CD8A", "CD4", "CD40LG", "SELL", "CCR7", "TCF7", "IL7R", "CD27", "CD28", "DPP4", "BCL2", "LTB", "MAL", "KLRG1", "CX3CR1", "ITGAE", "CCL5", "GZMB", "GZMK", "GZMH", "GNLY", "PRF1", "EOMES", "TIGIT", "HAVCR2", "PDCD1", "TOX", "LAG3", "KLRC2", "NCAM1", "TRDV2", "TRGV9", "TRDC", "MKI67", "CD69", "FOS", "FOSB", "JUN", "SLC7A5", "DUSP4", "FAS", "B3GAT1", "LYZ", "S100A8"], dendrogram=True,
 standard_scale="var", return_fig=True, cmap = "mako_r")
 dp.make_figure()
 fig=dp.fig
@@ -387,8 +421,8 @@ cars.obs["celltypist_covid_label_5pct"] = labels.where(
 
 ```{python}
 fig = sc.pl.umap(cars, color=["celltypist_low_label_1pct", "celltypist_low_score"], 
-wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True, palette = "tab20")
-fig.set_size_inches(12, 5)
+wspace=1,show=False, size = 2, ncols=1,frameon = False, return_fig = True, palette = "tab10")
+fig.set_size_inches(5, 8)
 print(fig.get_size_inches())
 fig.savefig("car_only/umap_celltypist_low_1pct.png", dpi=300, bbox_inches="tight")
 plt.close
@@ -396,8 +430,8 @@ plt.close
 
 ```{python}
 fig = sc.pl.umap(cars, color=["celltypist_covid_label_1pct", "celltypist_covid_score"], 
-wspace=1,show=False, size = 1, ncols=2,frameon = False, return_fig = True, palette = "tab20")
-fig.set_size_inches(12, 5)
+wspace=0.8,show=False, size = 2, ncols=1,frameon = False, return_fig = True, palette = "tab20")
+fig.set_size_inches(5, 8)
 print(fig.get_size_inches())
 fig.savefig("car_only/umap_celltypist_covid_1pct.png", dpi=300, bbox_inches="tight")
 plt.close
@@ -434,23 +468,23 @@ p.save("car_only/covid_celltypist_proportions_res_0.6.png", dpi=300, bbox_inches
 
 ```{python}
 labels = {
-    "0":"CM CD8+ T (1)",
+    "0":"CM CD8+ T",
     "1":"Activated CM CD8+ T",
-    "2":"Early EM CD8+ T",
-    "3":"Naive/CM CD8+ T",
+    "2":"CM CD8+ T",
+    "3":"Activated Naive/CM T",
     "4":"DN T",
     "5":"Cycling T",
     "6":"DN/CD8+ T",
-    "7":"Naive/CM Mixed T",
+    "7":"Naive/CM T",
     "8":"Product CD8+ T",
-    "9":"CTL",
+    "9":"GD/CD8+ T",
     "10":"EM CD8+ T",
-    "11":"CM CD8+ T (2)",
+    "11":"Early EM CD8+ T",
     "12":"DN T",
-    "13":"g/d T",
+    "13":"Myeloid contamination",
     "14":"Product Mixed T",
-    "15":"CTL",
-    "16":"Exhausted EM CD8+ T",
+    "15":"GD/CD8+ T",
+    "16":"Exhausted/Late EM CD8+ T",
     "17":"Product Mixed T"
 }
 
@@ -463,20 +497,40 @@ sc.tl.dendrogram(cars, groupby="labels")
 ```
 
 ```{python}
+label_palette = {
+    "CM CD8+ T":"darkred",
+    "Activated CM CD8+ T":"mediumvioletred",
+    "DN T":"springgreen",
+    "Cycling T":"skyblue",
+    "DN/CD8+ T":"forestgreen",
+    "Naive/CM T":"deepskyblue",
+    "Activated Naive/CM T":"blue",
+    "Product CD8+ T":"grey",
+    "GD/CD8+ T":"gold",
+    "EM CD8+ T":"red",
+    "Early EM CD8+ T":"indianred",
+    "Myeloid contamination":"tan",
+    "Product Mixed T":"black",
+    "Exhausted/Late EM CD8+ T":"darkorchid"
+}
+
+```
+
+```{python}
 fig = sc.pl.umap(cars, color=["labels"], 
-wspace=1,show=False, size = 1, ncols=1,frameon = False, return_fig = True, palette="tab20")
-fig.set_size_inches(8, 5)
+wspace=1,show=False, size = 3, ncols=1,frameon = False, return_fig = True, palette=label_palette)
+fig.set_size_inches(6, 4)
 print(fig.get_size_inches())
 fig.savefig("car_only/umap_annotated.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
 ```{python}
-dp=sc.pl.dotplot(cars, groupby="labels", var_names=["CD8A", "CD4", "SELL", "CCR7", "TCF7", "IL7R", "CD27", "CD28", "GPR183", "ITGAE", "SELPLG", "CCL5", "GZMB", "GZMK", "GZMH", "GNLY", "PRF1", "EOMES", "TIGIT", "HAVCR2", "PDCD1", "LAG3","TRGV9", "TRDC", "MKI67", "CD69", "FOS", "FOSB", "JUN", "SLC7A5", "DUSP4"], dendrogram=True,
+dp=sc.pl.dotplot(cars, groupby="labels", var_names=["CD8A", "CD4", "CD40LG", "CCR7", "TCF7", "IL7R", "CD27", "CD28", "DPP4", "BCL2", "MAL", "KLRG1", "CX3CR1", "GZMB", "GZMK", "PRF1", "TIGIT", "HAVCR2", "TOX", "LAG3", "KLRC2", "TRAC", "TRDC", "MKI67", "CD69", "FOS", "JUN", "LYZ", "S100A8"], dendrogram=True,
 standard_scale="var", return_fig=True, cmap = "mako_r")
 dp.make_figure()
 fig=dp.fig
-fig.set_size_inches(8, 10)
+fig.set_size_inches(8, 8)
 print(fig.get_size_inches())
 fig.savefig("car_only/labels_key_genes_dotplot.png", dpi=300, bbox_inches="tight")
 plt.close
@@ -489,8 +543,16 @@ for k in [
     "dendrogram_leiden_res_0.6"
 ]:
     cars.uns.pop(k, None)
-cars.write_h5ad("2_car_only_annotated.h5ad")
-cars = sc.read_h5ad("2_car_only_annotated.h5ad")
+#cars.write_h5ad("2_car_only_annotated.h5ad")
+cars = sc.read_h5ad("2_car_only_annotated_v2.h5ad")
+```
+
+# also saving an object with no gamma/delta and meyloid contamination
+# these populations are predominantly found in one patient and g/d don;'' biologically make sense in pseudotime analysis
+```{python}
+to_remove = ["Myeloid contamination", "GD/CD8+ T"]
+car_subset = cars[~cars.obs["labels"].isin(to_remove)].copy()
+car_subset.write_h5ad("2.5_car_no_gd.h5ad")
 ```
 
 ```{python}
@@ -511,13 +573,42 @@ props = props.melt(id_vars = "Timepoint_bin", var_name = "celltype", value_name 
 ```{python}
 p = (
     so.Plot(props, x="Timepoint_bin", y="percent", color="celltype")
-    .scale(color="tab20")
+    .scale(color=label_palette)
     .add(so.Bar(), so.Stack())
     .theme({
         "axes.facecolor": "w", 
         "axes.edgecolor": "grey"})
-    .layout(size=(10,6))
+    .layout(size=(8,4))
 )
 
 p.save("car_only/labels_proportions_time.png", dpi=300, bbox_inches="tight")
+```
+
+```{python}
+counts = pd.crosstab(
+    cars.obs["Patient"],
+    cars.obs["labels"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "Patient", var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="Patient", y="percent", color="celltype")
+    .scale(color=label_palette)
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(8,4))
+)
+
+p.save("car_only/labels_proportions_patient.png", dpi=300, bbox_inches="tight")
 ```

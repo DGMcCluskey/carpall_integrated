@@ -13,7 +13,7 @@ library(ggplot2)
 ```
 
 ```{r}
-adata <- read_h5ad("2_car_only_annotated_v2.h5ad", as = "SingleCellExperiment")
+adata <- read_h5ad("2.5_car_no_gd.h5ad", as = "SingleCellExperiment")
 adata
 ```
 
