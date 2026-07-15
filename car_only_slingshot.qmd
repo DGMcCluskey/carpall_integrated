@@ -10,6 +10,7 @@ library(slingshot)
 library(dplyr)
 library(igraph)
 library(ggplot2)
+library(viridis)
 ```
 
 ```{r}
@@ -36,7 +37,11 @@ sce <- slingshot(
   sce,
   clusterLabels = "labels",
   reducedDim = "UMAP",
-  start.clus = "Product Mixed T"
+  start.clus = c("Product Mixed T", "Product CD8+ T"),
+  allow.breaks=T,
+  omega=T,
+  stretch=1,
+  approx_points=300
 )
 ```
 
@@ -51,16 +56,22 @@ saveRDS(sce, file = "car_only/car_slingshot_object.rds")
 ```
 
 ```{r}
-palette <- ggsci::pal_d3("category20")(20)
-
-# Create a color lookup table
-cluster_cols <- setNames(
-  palette[seq_along(levels(clustering))],
-  levels(clustering)
+palette = c(
+    "CM CD8+ T"="darkred",
+    "Activated CM CD8+ T"="mediumvioletred",
+    "DN T"="springgreen",
+    "Cycling T"="skyblue",
+    "DN/CD8+ T"="forestgreen",
+    "Naive/CM T"="deepskyblue",
+    "Activated Naive/CM T"="blue",
+    "Product CD8+ T"="grey",
+    "EM CD8+ T"="red",
+    "Early EM CD8+ T"="indianred",
+    "Product Mixed T"="black",
+    "Exhausted/Late EM CD8+ T"="darkorchid"
 )
 
-# Assign a color to each cell based on its cluster
-cell_cols <- cluster_cols[as.character(clustering)]
+cell_cols <- palette[as.character(clustering)]
 ```
 
 ```{r}
@@ -120,8 +131,99 @@ p <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
     size = 4,
     colour = "black"
   ) +
-  scale_colour_manual(values = cluster_cols) +
+  scale_colour_manual(values = palette) +
   theme_classic()
 p
 ggsave(plot=p, filename = "car_only/pseudotime_MST_umap.png", dpi = 300, height = 6, width = 8)
+```
+
+```{r}
+curves <- slingCurves(sce)
+curves
+```
+
+```{r}
+curve_dfs <- lapply(seq_along(curves), function(i) {
+
+  crv <- curves[[i]]
+
+  data.frame(
+    UMAP_1 = crv$s[,1],
+    UMAP_2 = crv$s[,2],
+    lineage = paste0("Lineage_", i),
+    order = seq_len(nrow(crv$s))
+  )
+})
+
+curve_df <- do.call(rbind, curve_dfs)
+curve_df$lineage <- gsub("_", "", curve_df$lineage)
+curve_df <- filter(curve_df, lineage %in% c("Lineage1", "Lineage2", "Lineage3"))
+```
+
+
+```{r}
+lin <- slingLineages(sce)
+
+terminal_cluster <- sapply(lin, tail, 1)
+```
+
+```{r}
+p <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+
+  # --- cells (cluster colour scale 1)
+  geom_point(
+    aes(colour = labels),
+    size = 1, alpha = 0.8, shape = 20
+  ) +
+  scale_colour_manual(values = palette) +
+
+  ggnewscale::new_scale_colour() +
+
+  # --- lineages (second independent colour scale)
+  geom_path(
+    data = curve_df,
+    aes(
+      UMAP_1,
+      UMAP_2,
+      group = lineage
+    ),
+    colour="grey30",
+    linewidth = 1,
+    arrow = arrow(type = "closed", length = unit(0.15, "inches"))
+  ) +
+  theme_classic()
+p
+ggsave(plot=p, filename = "car_only/pseuodtime_lineages_umap.png", dpi = 300, height = 6, width = 8)
+```
+
+### add lineage info to cell_df to be able to plot on umap
+```{r}
+pt <- slingPseudotime(sce)
+cell_df$pt_L1 <- pt[, "Lineage1"]
+cell_df$pt_L2 <- pt[, "Lineage2"]
+cell_df$pt_L3 <- pt[, "Lineage3"]
+```
+```{r}
+pt_df <- as.data.frame(pt)
+pt_df$cell <- rownames(pt_df)
+
+pt_long <- pivot_longer(
+  pt_df,
+  cols = starts_with("Lineage"),
+  names_to = "lineage",
+  values_to = "pseudotime"
+)
+pt_long <- merge(pt_long, cell_df, by.x = "cell", by.y = "row.names")
+```
+
+```{r}
+pt_long <- filter(pt_long, lineage %in% c("Lineage1", "Lineage2", "Lineage3"))
+p <- ggplot(pt_long, aes(UMAP_1, UMAP_2, color = pseudotime)) +
+  geom_point(size = 0.3) +
+  facet_wrap(~ lineage, ncol=1) +
+  scale_color_viridis(option = "rocket", direction = -1) +
+  theme_void()+
+  theme(strip.text=element_text(size=14, colour = "black", face = "bold"))
+p
+ggsave(plot = p, filename= "catcar_pseudotime_gradient_umaps.png", dpi = 300, height = 6, width = 2)
 ```

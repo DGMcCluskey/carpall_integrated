@@ -537,6 +537,48 @@ plt.close
 ```
 
 ```{python}
+sc.tl.rank_genes_groups(
+    cars, groupby="labels", method="wilcoxon", key_added="dea_labels"
+)
+
+sc.tl.filter_rank_genes_groups(
+    cars,
+    min_in_group_fraction=0.25,
+    max_out_group_fraction=0.25,
+    key="dea_labels",
+    key_added="dea_labels_filtered",
+)
+```
+
+```{python}
+degs = sc.get.rank_genes_groups_df(
+    cars,
+    group=None,
+    key="dea_labels_filtered"
+)
+
+degs.to_csv("labels_degs.csv", index=False)
+```
+
+```{python}
+sc.tl.dendrogram(
+    cars,
+    groupby="labels",
+)
+
+dp=sc.pl.rank_genes_groups_dotplot(
+    cars, groupby="labels", standard_scale="var", n_genes=10, cmap="mako_r",
+    key="dea_labels_filtered", return_fig=True
+)
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(20, 6)
+print(fig.get_size_inches())
+fig.savefig("car_only/labels_degs_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
 for k in [
     "dea_leiden_res_0.6",
     "dea_leiden_res_0.6_filtered",
@@ -552,7 +594,11 @@ cars = sc.read_h5ad("2_car_only_annotated_v2.h5ad")
 ```{python}
 to_remove = ["Myeloid contamination", "GD/CD8+ T"]
 car_subset = cars[~cars.obs["labels"].isin(to_remove)].copy()
-car_subset.write_h5ad("2.5_car_no_gd.h5ad")
+```
+
+```{python}
+#car_subset.write_h5ad("2.5_car_no_gd.h5ad")
+car_subset = sc.read_h5ad("2.5_car_no_gd.h5ad")
 ```
 
 ```{python}
@@ -611,4 +657,17 @@ p = (
 )
 
 p.save("car_only/labels_proportions_patient.png", dpi=300, bbox_inches="tight")
+```
+
+# trying PAGA psuedotime to see how it performs compared to slingshot
+```{python}
+sc.tl.paga(car_subset, groups = "labels")
+```
+
+```{python}
+plt.close()
+plt.figure(figsize=(5,5))
+sc.pl.paga(car_subset, threshold=0.05, show=False, node_size_power=1, fontoutline=2,frameon=False)
+plt.savefig("car_only/PAGA_network.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
