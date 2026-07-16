@@ -14,7 +14,106 @@ import seaborn as sns
 ```
 
 ```{python}
-cars = sc.read_h5ad("2_car_only_annotated_v2.h5ad")
+cars = sc.read_h5ad("2.5_car_no_gd.h5ad")
+```
+
+# adding a new timepoint category, that splits the late timepoint into late and very late
+```{python}
+late_dict = {
+    "M0":"Product",
+    "M01":"Early",
+    "M02":"Early",
+    "M03":"Early",
+    "M04":"Mid",
+    "M05":"Mid",
+    "M06":"Mid",
+    "M09":"Late",
+    "M12":"Late",
+    "M14":"Late",
+    "M15":"Late",
+    "M18":"Late",
+    "M21":"Late",
+    "M30":"VeryLate",
+    "M36":"VeryLate",
+    "M48":"VeryLate",
+    "M60":"VeryLate"
+}
+
+cars.obs["timepoint_bin_v2"] = (
+    cars.obs["Timepoint"]
+    .map(late_dict)
+    .astype("category")
+)
+sc.tl.dendrogram(cars, groupby="timepoint_bin_v2")
+```
+
+# also adding pseudotime data generated in slingshot script
+```{python}
+pt = pd.read_csv("slingshot_pseudotime.csv", index_col="cell")
+weights = pd.read_csv("slingshot_lineage_weights.csv", index_col="cell")
+weights = weights[["Lineage1", "Lineage3"]]
+```
+
+```{python}
+pt = pt.loc[cars.obs_names]
+weights = weights.loc[cars.obs_names]
+```
+
+```{python}
+cars.obs["Lineage1_weight"] = weights["Lineage1"]
+cars.obs["Lineage3_weight"] = weights["Lineage3"]
+```
+
+```{python}
+sc.pl.umap(cars, color = ["Lineage1_weight", "Lineage3_weight"])
+```
+
+# classifying cells into lineages or branching cells based on their weights
+# cells with weigth > 0.8 in lineage 1 and < 0.8 in lineage 2 = lin1 (and vice versa)
+# brach cells = those with 0.8 in both, but then excluding earlier clusters to make sure im only capturing the immediate branching point
+
+```{python}
+threshold = 0.8
+
+cars.obs["Lineage1_member"] = (cars.obs["Lineage1_weight"] > threshold) & (cars.obs["Lineage3_weight"] < 0.2)
+cars.obs["Lineage3_member"] = (cars.obs["Lineage1_weight"] < 0.2) & (cars.obs["Lineage3_weight"] > threshold)
+cars.obs["Branch_member"] = (cars.obs["Lineage1_weight"] > threshold) & (cars.obs["Lineage3_weight"] > threshold)
+```
+
+```{python}
+sc.pl.umap(cars, color = ["Lineage1_member", "Lineage3_member", "Branch_member"])
+```
+
+```{python}
+cars.obs["lineage_group"] = np.select(
+    [
+        cars.obs["Lineage1_member"],
+        cars.obs["Lineage3_member"],
+        cars.obs["Branch_member"],
+    ],
+    [
+        "Lineage1",
+        "Lineage3",
+        "Branch",
+    ],
+    default="Other"
+)
+
+cars.obs["lineage_group"] = cars.obs["lineage_group"].astype("category")
+```
+
+```{python}
+sc.pl.umap(cars, color = "lineage_group")
+```
+
+# finally, subset out cells that are other, or are too early in the branch
+# i'll do that by subsetting out specific clusters
+```{python}
+to_remove = ["Other"]
+car_branch = cars[~cars.obs["lineage_group"].isin(to_remove)].copy()
+to_remove = ["Naive/CM T", "Cycling T", "Product Mixed T"]
+car_branch = car_branch[~car_branch.obs["labels"].isin(to_remove)].copy()
+sc.pl.umap(car_branch, color = "lineage_group")
 ```
 
 ```{python}
@@ -23,7 +122,7 @@ collectri.head()
 ```
 
 ```{python}
-dc.mt.ulm(data=cars, net=collectri)
+dc.mt.ulm(data=cars, net=collectri, layer = "logcounts")
 ```
 
 ```{python}
@@ -32,13 +131,13 @@ score
 ```
 
 ```{python}
-df = dc.tl.rankby_group(adata=score, groupby="Timepoint_bin", reference="rest", method="t-test_overestim_var")
+df = dc.tl.rankby_group(adata=score, groupby="timepoint_bin_v2", reference="rest", method="t-test_overestim_var")
 df = df[df["padj"] < 0.05]
 df
 ```
 
 ```{python}
-n_markers = 10
+n_markers = 5
 source_markers = (
     df.groupby("group")
     .head(n_markers)
@@ -51,19 +150,46 @@ source_markers
 ```
 
 ```{python}
-plt.figure(figsize=(8,8))
+plt.close("all")
+plt.figure(figsize=(24,8))
 sc.pl.matrixplot(
     adata=score,
     var_names=source_markers,
-    groupby="Timepoint_bin",
+    groupby="timepoint_bin_v2",
+    dendrogram=False,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r"
+)
+plt.savefig("tf_enrichment/all_timepoints_tfs_heatmap.png", dpi=300)
+plt.close()
+```
+
+# looking at specific TFs from a recent nature publication to see if they are expressed across celltypes or timepoints
+# https://www.nature.com/articles/s41586-025-09989-7
+```{python}
+markers = {
+    "Mem_precurosr": ["HOXB4", "NR6A1", "NFIA", "POU2F2"],
+    "Naive": ["MYC","SOX4","TET3","MYNN","EGR3"],
+    "TCM": ["CUX1", "NFKB1", "BACH1", "POU5F1"],
+    "TEM": ["FOXB1", "FOXF2", "TBX6", "RORB", "CPHXL"],
+    "TEX_progenitor": ["NR3C2", "IRF7", "NFKB2", "CEBPD", "STAT5B"],
+    "TEX_eff": ["SOX8", "ZNF184", "MXI1", "OVOL2", "RFX4"],
+    "TEX_term": ["ZSCAN20", "ZNF143", "ZBTB49", "ZBTB3", "THRB"]
+}
+```
+
+```{python}
+plt.close()
+sc.pl.matrixplot(
+    adata=cars,
+    var_names=["FOXO1"],
+    groupby="labels",
     dendrogram=True,
     standard_scale="var",
     colorbar_title="Z-scaled scores",
-    cmap="RdBu_r",
-    swap_axes=True
+    cmap="RdBu_r"
 )
-plt.savefig("tf_enrichment/alltimepoints_tfs_heatmap.png", dpi=300)
-plt.close()
 ```
 
 ```{python}
@@ -71,8 +197,8 @@ sc.pl.violin(score, keys ="NOTO", groupby="labels",rotation=45)
 ```
 
 ```{python}
-gex_dn = cars[cars.obs["Timepoint_bin"] == "Late"].to_df().mean(0).to_frame().T
-score_dn = score[score.obs["Timepoint_bin"] == "Late"].to_df().mean(0).to_frame().T
+gex_dn = cars[cars.obs["Timepoint_bin"] == "VeryLate"].to_df().mean(0).to_frame().T
+score_dn = score[score.obs["Timepoint_bin"] == "VeryLate"].to_df().mean(0).to_frame().T
 
 dc.pl.network(
     data=gex_dn,
@@ -88,7 +214,7 @@ dc.pl.network(
 ```
 
 ```{python}
-late = df[(df["group"] == "Late")]
+late = df[(df["group"] == "VeryLate")]
 
 top_up = late.nlargest(10, "stat")
 top_down = late.nsmallest(10, "stat")
@@ -102,7 +228,7 @@ plot_df = plot_df.sort_values("stat")
 order = plot_df.sort_values("stat")["name"]
 plt.figure(figsize=(8,6))
 sns.barplot(plot_df, x = "stat", y = "name", hue = "stat", palette="RdBu_r", order=order)
-plt.savefig("tf_enrichment/late_top_de_tf.png", dpi=300)
+plt.savefig("tf_enrichment/verylate_top_de_tf.png", dpi=300)
 plt.close()
 ```
 

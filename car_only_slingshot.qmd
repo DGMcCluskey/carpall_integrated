@@ -227,3 +227,26 @@ p <- ggplot(pt_long, aes(UMAP_1, UMAP_2, color = pseudotime)) +
 p
 ggsave(plot = p, filename= "catcar_pseudotime_gradient_umaps.png", dpi = 300, height = 6, width = 2)
 ```
+
+# exporting pseudotime values to put into adata for TF enrichment
+```{r}
+pt <- as.data.frame(slingPseudotime(sce))
+pt$cell <- rownames(pt)
+
+write.csv(
+    pt,
+    file = "slingshot_pseudotime.csv",
+    row.names = FALSE
+)
+```
+
+```{r}
+cw <- as.data.frame(slingCurveWeights(sce))
+cw$cell <- rownames(cw)
+
+write.csv(
+    cw,
+    file = "slingshot_lineage_weights.csv",
+    row.names = FALSE
+)
+```
