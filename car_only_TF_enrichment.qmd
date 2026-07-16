@@ -65,7 +65,13 @@ cars.obs["Lineage3_weight"] = weights["Lineage3"]
 ```
 
 ```{python}
-sc.pl.umap(cars, color = ["Lineage1_weight", "Lineage3_weight"])
+plt.close()
+fig=sc.pl.umap(cars, color = ["Lineage1_weight", "Lineage3_weight"], return_fig=True, 
+cmap="rocket_r", frameon=False)
+fig.set_size_inches(8, 4)
+print(fig.get_size_inches())
+fig.savefig("car_only/lineage_weights_umap.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
 # classifying cells into lineages or branching cells based on their weights
@@ -103,17 +109,35 @@ cars.obs["lineage_group"] = cars.obs["lineage_group"].astype("category")
 ```
 
 ```{python}
-sc.pl.umap(cars, color = "lineage_group")
+plt.close()
+fig=sc.pl.umap(cars, color = "lineage_group",return_fig=True, frameon=False)
+fig.set_size_inches(4, 4)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_lineage_groups.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
-# finally, subset out cells that are other, or are too early in the branch
-# i'll do that by subsetting out specific clusters
+# finally, i need to allocate cells in the branch lineage that are too early to be truly considered the brnaching point (e.g product cells) into the other group
 ```{python}
-to_remove = ["Other"]
-car_branch = cars[~cars.obs["lineage_group"].isin(to_remove)].copy()
-to_remove = ["Naive/CM T", "Cycling T", "Product Mixed T"]
-car_branch = car_branch[~car_branch.obs["labels"].isin(to_remove)].copy()
-sc.pl.umap(car_branch, color = "lineage_group")
+early_clusters = [
+    "Product Mixed T",
+    "Product CD8+ T",
+    "Naive/CM T",
+    "Cycling T"
+]
+
+cars.obs.loc[
+    (cars.obs["lineage_group"] == "Branch") &
+    (cars.obs["labels"].isin(early_clusters)),
+    "lineage_group"
+] = "Other"
+```
+
+# adding a new meta column (might not use it) that combined lineage with timepoint
+```{python}
+cars.obs["lineage_time"] = (
+    cars.obs["lineage_group"].astype(str) + "_" + cars.obs["Timepoint_bin"].astype(str)
+)
 ```
 
 ```{python}
@@ -131,13 +155,13 @@ score
 ```
 
 ```{python}
-df = dc.tl.rankby_group(adata=score, groupby="timepoint_bin_v2", reference="rest", method="t-test_overestim_var")
+df = dc.tl.rankby_group(adata=score, groupby="lineage_group", reference="rest", method="t-test_overestim_var")
 df = df[df["padj"] < 0.05]
 df
 ```
 
 ```{python}
-n_markers = 5
+n_markers = 10
 source_markers = (
     df.groupby("group")
     .head(n_markers)
@@ -155,13 +179,164 @@ plt.figure(figsize=(24,8))
 sc.pl.matrixplot(
     adata=score,
     var_names=source_markers,
-    groupby="timepoint_bin_v2",
+    groupby="lineage_group",
     dendrogram=False,
     standard_scale="var",
     colorbar_title="Z-scaled scores",
     cmap="RdBu_r"
 )
-plt.savefig("tf_enrichment/all_timepoints_tfs_heatmap.png", dpi=300)
+plt.savefig("tf_enrichment/lineage_tfs_heatmap.png", dpi=300)
+plt.close()
+```
+
+# looking at overlapping TFs between groups
+
+```{python}
+df["direction"] = np.where(
+    df["stat"] > 0,
+    "up",
+    "down"
+)
+```
+
+
+```{python}
+branch = df[df["group"]=="Branch"].set_index("name")
+lin1 = df[df["group"]=="Lineage1"].set_index("name")
+
+branch_lin1 = branch.join(
+    lin1,
+    lsuffix="_branch",
+    rsuffix="_lin1"
+)
+
+same_direction = branch_lin1[
+    branch_lin1["direction_branch"] ==
+    branch_lin1["direction_lin1"]
+]
+```
+
+```{python}
+lin3 = df[df["group"]=="Lineage3"].set_index("name")
+
+lin3 = lin3.add_suffix("_lin3")
+
+combined = (
+    branch.add_suffix("_branch")
+    .join(lin1.add_suffix("_lin1"), how="inner")
+    .join(lin3, how="inner")
+)
+
+persistent_like = combined[
+    (
+        (combined["direction_branch"]=="up") &
+        (combined["direction_lin1"]=="up") &
+        (combined["direction_lin3"]!="up")
+    )
+    |
+    (
+        (combined["direction_branch"]=="down") &
+        (combined["direction_lin1"]=="down") &
+        (combined["direction_lin3"]!="down")
+    )
+]
+```
+
+```{python}
+persistent_like = persistent_like.sort_values(
+    "stat_lin1",
+    ascending=False
+)
+persistent_like = persistent_like.reset_index()
+```
+
+```{python}
+plt.close("all")
+plt.figure(figsize=(24,8))
+sc.pl.matrixplot(
+    adata=score,
+    var_names=persistent_like.name,
+    groupby="lineage_group",
+    dendrogram=False,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r"
+)
+plt.savefig("tf_enrichment/persistence_tfs_heatmap.png", dpi=300)
+plt.close()
+```
+
+```{python}
+persistent_up = persistent_like[persistent_like["direction_lin1"] == "up"]
+persistent_down = persistent_like[persistent_like["direction_lin1"] == "down"]
+```
+
+```{python}
+plt.close("all")
+plt.figure(figsize=(10,5))
+sc.pl.matrixplot(
+    adata=score,
+    var_names=persistent_up.name,
+    groupby="lineage_group",
+    dendrogram=False,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r"
+)
+
+plt.savefig("tf_enrichment/persistence_up_tfs_heatmap.png", dpi=300)
+plt.close()
+```
+
+```{python}
+plt.close("all")
+plt.figure(figsize=(10,5))
+sc.pl.matrixplot(
+    adata=score,
+    var_names=persistent_down.name,
+    groupby="lineage_group",
+    dendrogram=False,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r"
+)
+
+plt.savefig("tf_enrichment/persistence_down_tfs_heatmap.png", dpi=300)
+plt.close()
+```
+
+# plotting top enriched and suppressed TFs
+```{python}
+# top and bottom 10 TFs by Lineage1 statistic
+top10 = persistent_like.nlargest(10, "stat_branch")
+bottom10 = persistent_like.nsmallest(10, "stat_branch")
+
+plot_df = pd.concat([bottom10, top10])
+
+# make ordering sensible
+plot_df = plot_df.sort_values("stat_branch")
+
+plt.close()
+plt.figure(figsize=(8,6))
+
+sns.barplot(
+    data=plot_df,
+    x="stat_branch",
+    y="name",
+    hue="stat_branch",
+    palette="RdBu_r",
+    legend=False
+)
+
+plt.xlabel("Lineage1 TF activity statistic")
+plt.ylabel("TF")
+
+plt.savefig(
+    "tf_enrichment/persistence_top_bottom_tfs.png",
+    dpi=300,
+    bbox_inches="tight"
+)
+
 plt.close()
 ```
 
@@ -183,8 +358,8 @@ markers = {
 plt.close()
 sc.pl.matrixplot(
     adata=cars,
-    var_names=["FOXO1"],
-    groupby="labels",
+    var_names=markers,
+    groupby="lineage_group",
     dendrogram=True,
     standard_scale="var",
     colorbar_title="Z-scaled scores",
@@ -197,12 +372,12 @@ sc.pl.violin(score, keys ="NOTO", groupby="labels",rotation=45)
 ```
 
 ```{python}
-gex_dn = cars[cars.obs["Timepoint_bin"] == "VeryLate"].to_df().mean(0).to_frame().T
-score_dn = score[score.obs["Timepoint_bin"] == "VeryLate"].to_df().mean(0).to_frame().T
+gex_branch= cars[cars.obs["lineage_group"] == "Branch"].to_df().mean(0).to_frame().T
+score_branch = score[score.obs["lineage_group"] == "Branch"].to_df().mean(0).to_frame().T
 
 dc.pl.network(
-    data=gex_dn,
-    score=score_dn,
+    data=gex_branch,
+    score=score_branch,
     net=collectri,
     sources=5,
     targets=10,
@@ -214,7 +389,7 @@ dc.pl.network(
 ```
 
 ```{python}
-late = df[(df["group"] == "VeryLate")]
+late = df[(df["group"] == "Branch")]
 
 top_up = late.nlargest(10, "stat")
 top_down = late.nsmallest(10, "stat")
@@ -228,7 +403,7 @@ plot_df = plot_df.sort_values("stat")
 order = plot_df.sort_values("stat")["name"]
 plt.figure(figsize=(8,6))
 sns.barplot(plot_df, x = "stat", y = "name", hue = "stat", palette="RdBu_r", order=order)
-plt.savefig("tf_enrichment/verylate_top_de_tf.png", dpi=300)
+plt.savefig("tf_enrichment/branch_top_de_tf.png", dpi=300)
 plt.close()
 ```
 
@@ -237,13 +412,13 @@ plt.figure(figsize=(10,4))
 sc.pl.matrixplot(
     adata=score,
     var_names=plot_df.name,
-    groupby="Timepoint_bin",
+    groupby="lineage_group",
     dendrogram=True,
     standard_scale="var",
     colorbar_title="Z-scaled scores",
     cmap="RdBu_r",
 )
-plt.savefig("tf_enrichment/late_tfs_heatmap.png", dpi=300)
+plt.savefig("tf_enrichment/branch_tfs_heatmap.png", dpi=300)
 plt.close()
 ```
 
