@@ -117,6 +117,7 @@ fig.savefig("car_only/umap_lineage_groups.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
+
 # finally, i need to allocate cells in the branch lineage that are too early to be truly considered the brnaching point (e.g product cells) into the other group
 ```{python}
 early_clusters = [
@@ -141,12 +142,107 @@ cars.obs["lineage_time"] = (
 ```
 
 ```{python}
+plt.close()
+sc.pl.dotplot(cars, var_names = ["FOXO1", "RASA2", "MED12", "LTBR", "JUN"], groupby = "Timepoint_bin")
+plt.close()
+```
+
+# running pseudobulk DEA on lineages
+```{python}
+pdata = dc.pp.pseudobulk(
+    adata=cars,
+    sample_col="Patient",
+    groups_col="lineage_group",
+    mode="sum",
+    layer="counts"
+)
+```
+
+```{python}
+dc.pl.filter_samples(
+    adata=pdata,
+    groupby=["Patient", "lineage_group"],
+    min_cells=10,
+    min_counts=1000,
+    figsize=(5, 8),
+)
+```
+
+```{python}
+dc.pp.filter_samples(pdata, min_cells=10, min_counts=1000)
+```
+
+```{python}
+# Import DESeq2
+import pydeseq2
+from pydeseq2.dds import DeseqDataSet, DefaultInference
+from pydeseq2.ds import DeseqStats
+
+# Build DESeq2 object
+inference = DefaultInference(n_cpus=8)
+dds = DeseqDataSet(
+    adata=pdata,
+    design="~lineage_group",
+    refit_cooks=True,
+    inference=inference,
+)
+
+# Compute LFCs
+dds.deseq2()
+
+# Extract contrast between conditions
+stat_res = DeseqStats(dds, contrast=[""], inference=inference)
+
+# Compute Wald test
+stat_res.summary()
+```
+
+```{python}
+results_df = stat_res.results_df
+results_df
+```
+
+```{python}
+plt.close()
+
+sc.pl.dotplot(
+    cars,
+    var_names=["ZBTB4", "ZBED1", "MYC", "PTF1A", "SIX4", "GBX2", "MSX1", "RFX1", "HCFC1", "HLF",
+    "NFATC1", "SP7", "SMARCA5", "NCOA1", "ZNF148", "DLX4", "DLX2", "BHLHA15", "NEUROD1", "SOX4"],
+    groupby="lineage_group",
+    standard_scale="var"
+)
+```
+
+
+# start TF enrichment analysis
+```{python}
 collectri = pd.read_csv("../CollecTRI_regulons.csv")
 collectri.head()
 ```
 
+# only include TFs that are not 0 counts in my data
 ```{python}
-dc.mt.ulm(data=cars, net=collectri, layer = "logcounts")
+X = cars.layers["logcounts"]
+expr_fraction = np.asarray((X > 0).mean(axis=0)).flatten()
+gene_fraction = dict(zip(cars.var_names, expr_fraction))
+expressed_genes = [
+    g for g, frac in gene_fraction.items()
+    if frac >= 0.01
+]
+```
+
+```{python}
+collectri_filtered = collectri[
+    collectri["target"].isin(expressed_genes)
+]
+collectri_filtered = collectri_filtered[
+    collectri_filtered["source"].isin(expressed_genes)
+]
+```
+
+```{python}
+dc.mt.ulm(data=cars, net=collectri_filtered, layer = "logcounts", tmin=10)
 ```
 
 ```{python}
@@ -267,8 +363,8 @@ plt.close()
 ```
 
 ```{python}
-persistent_up = persistent_like[persistent_like["direction_lin1"] == "up"]
-persistent_down = persistent_like[persistent_like["direction_lin1"] == "down"]
+persistent_up = persistent_like[persistent_like["direction_branch"] == "up"]
+persistent_down = persistent_like[persistent_like["direction_branch"] == "down"]
 ```
 
 ```{python}
@@ -307,19 +403,21 @@ plt.close()
 
 # plotting top enriched and suppressed TFs
 ```{python}
-# top and bottom 10 TFs by Lineage1 statistic
+# top and bottom 10 TFs by branch statistic
+plot_base = persistent_like[["name", "stat_branch"]].copy()
 top10 = persistent_like.nlargest(10, "stat_branch")
 bottom10 = persistent_like.nsmallest(10, "stat_branch")
 
 plot_df = pd.concat([bottom10, top10])
+plot_df["name"] = plot_df["name"].astype(str)
 
-# make ordering sensible
 plot_df = plot_df.sort_values("stat_branch")
 
-plt.close()
-plt.figure(figsize=(8,6))
 
-sns.barplot(
+plt.close()
+plt.figure()
+
+fig=sns.barplot(
     data=plot_df,
     x="stat_branch",
     y="name",
@@ -327,8 +425,8 @@ sns.barplot(
     palette="RdBu_r",
     legend=False
 )
-
-plt.xlabel("Lineage1 TF activity statistic")
+fig.figure.set_size_inches(5,3)
+plt.xlabel("Branch activity statistic")
 plt.ylabel("TF")
 
 plt.savefig(
@@ -337,6 +435,25 @@ plt.savefig(
     bbox_inches="tight"
 )
 
+plt.close()
+```
+
+```{python}
+gex_branch= cars[cars.obs["lineage_group"] == "Branch"].to_df().mean(0).to_frame().T
+score_branch = score[score.obs["lineage_group"] == "Branch"].to_df().mean(0).to_frame().T
+
+plt.close()
+dc.pl.network(
+    data=gex_branch,
+    score=score_branch,
+    net=collectri,
+    sources=["ZBTB4", "ZBED1", "MYC", "PTF1A", "SIX4"],
+    targets=10,
+    size_node=5,
+    figsize=(5, 5),
+    s_cmap="Reds",
+    t_cmap="viridis"
+)
 plt.close()
 ```
 
@@ -357,8 +474,21 @@ markers = {
 ```{python}
 plt.close()
 sc.pl.matrixplot(
+    adata=score,
+    var_names=["NFATC1", "NFATC2"],
+    groupby="lineage_group",
+    dendrogram=True,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r"
+)
+```
+
+```{python}
+plt.close()
+sc.pl.dotplot(
     adata=cars,
-    var_names=markers,
+    var_names=["NFATC1", "NFATC2", "JUN", "FOXP3", "BATF", "IL4", "IFNG", "TNF", "RORA", "SP7"],
     groupby="lineage_group",
     dendrogram=True,
     standard_scale="var",
@@ -379,7 +509,7 @@ dc.pl.network(
     data=gex_branch,
     score=score_branch,
     net=collectri,
-    sources=5,
+    sources="NFATC1",
     targets=10,
     size_node=5,
     figsize=(5, 5),
