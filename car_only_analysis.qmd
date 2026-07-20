@@ -526,6 +526,17 @@ plt.close
 ```
 
 ```{python}
+sc.tl.embedding_density(cars, groupby="Timepoint_bin")
+plt.close("all")
+fig = sc.pl.embedding_density(cars, groupby="Timepoint_bin", frameon=False, color_map = "rocket_r", return_fig=True)
+fig.set_size_inches(10, 2)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_density.png", dpi=300, bbox_inches="tight")
+plt.close
+sc.pl.embedding_density(cars, groupby="Timepoint_bin", frameon=False, color_map = "rocket_r")
+```
+
+```{python}
 dp=sc.pl.dotplot(cars, groupby="labels", var_names=["CD8A", "CD4", "CD40LG", "CCR7", "TCF7", "IL7R", "CD27", "CD28", "DPP4", "BCL2", "MAL", "KLRG1", "CX3CR1", "GZMB", "GZMK", "PRF1", "TIGIT", "HAVCR2", "TOX", "LAG3", "KLRC2", "TRAC", "TRDC", "MKI67", "CD69", "FOS", "JUN", "LYZ", "S100A8"], dendrogram=True,
 standard_scale="var", return_fig=True, cmap = "mako_r")
 dp.make_figure()

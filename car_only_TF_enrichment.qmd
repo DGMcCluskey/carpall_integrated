@@ -117,6 +117,31 @@ fig.savefig("car_only/umap_lineage_groups.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
+```{python}
+cell_counts = cars.obs["lineage_group"].value_counts().reset_index(name="n_cells")
+
+plt.close("all")
+plt.figure(figsize=(8,5))
+
+ax=sns.lineplot(
+    data=cell_counts,
+    x="lineage_group",
+    y="n_cells",
+    hue="lineage_group",
+    marker="o"
+)
+
+ax.axvline(
+    x=7,              # month where you want the line
+    linestyle="--",
+    color="black",
+    linewidth=1
+)
+
+plt.show()
+plt.savefig("/car_only/lineage_group_numbers.png", dpi=300, bbox_inches="tight")
+plt.close()
+```
 
 # finally, i need to allocate cells in the branch lineage that are too early to be truly considered the brnaching point (e.g product cells) into the other group
 ```{python}
@@ -475,7 +500,7 @@ markers = {
 plt.close()
 sc.pl.matrixplot(
     adata=score,
-    var_names=["NFATC1", "NFATC2"],
+    var_names=["JUN", "FOXO1"],
     groupby="lineage_group",
     dendrogram=True,
     standard_scale="var",
@@ -488,7 +513,20 @@ sc.pl.matrixplot(
 plt.close()
 sc.pl.dotplot(
     adata=cars,
-    var_names=["NFATC1", "NFATC2", "JUN", "FOXP3", "BATF", "IL4", "IFNG", "TNF", "RORA", "SP7"],
+    var_names=["GATA3", "STAT6", "IRF4", "STAT5A", "IL4R", "MRPS26", "RORC", "RORA", "KLRB1", "STAT3","TBX21", "IFNG"],
+    groupby="lineage_group",
+    dendrogram=True,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r"
+)
+```
+
+```{python}
+plt.close()
+sc.pl.dotplot(
+    adata=cars,
+    var_names=["FOXO1", "JUN", "LTBR"],
     groupby="lineage_group",
     dendrogram=True,
     standard_scale="var",
