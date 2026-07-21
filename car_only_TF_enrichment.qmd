@@ -345,7 +345,7 @@ lin3 = lin3.add_suffix("_lin3")
 combined = (
     branch.add_suffix("_branch")
     .join(lin1.add_suffix("_lin1"), how="inner")
-    .join(lin3, how="inner")
+    .join(lin3, how="left")
 )
 
 persistent_like = combined[
