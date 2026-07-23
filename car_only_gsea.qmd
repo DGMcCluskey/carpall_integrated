@@ -1,0 +1,281 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(ReactomePA)
+library(enrichplot)
+library(stringr)
+library(presto)
+library(ggplot2)
+library(viridis)
+library(RColorBrewer)
+```
+
+```{r}
+degs <- read.csv("lineage_degs.csv")
+```
+
+```{r}
+gene_list <- degs$logfoldchanges * -log10(degs$pvals_adj)
+
+names(gene_list) <- degs$names
+
+gene_list <- sort(gene_list, decreasing = TRUE)
+```
+
+```{r}
+branch_rank <- degs %>%
+  filter(group == "Branch") %>%    # optional
+  arrange(desc(scores))
+```
+
+```{r}
+gene_list <- branch_rank$scores
+names(gene_list) <- branch_rank$names
+```
+
+```{r}
+go_res <- gseGO(
+    geneList = gene_list,
+    OrgDb = org.Hs.eg.db,
+    keyType = "SYMBOL",
+    ont = "BP",
+    minGSSize = 10,
+    maxGSSize = 500,
+    pvalueCutoff = 0.05,
+    verbose = TRUE
+)
+
+go_res <- simplify(
+  go_res,
+  cutoff = 0.7,
+  by = "p.adjust",
+  select_fun = min,
+  measure = "Wang",
+  semData = NULL
+)
+```
+
+```{r}
+go_df <- as.data.frame(go_res)
+```
+
+```{r}
+p <- dotplot(go_res, showCategory=10, split=".sign") + facet_grid(.~.sign)+
+    scale_fill_distiller(palette = "Reds", direction = -1)
+p
+ggsave(plot = p, filename = "lineage1_go_gsea_dotplot.png", dpi = 300, height = 7, width = 9)
+```
+
+```{r}
+top_bottom_df <- go_df %>%
+    arrange(desc(NES)) %>%
+    slice(c(1:10, (n() - 9):n()))
+```
+```{r}
+ggplot(top_bottom_df, aes(x= NES, y = reorder(Description, NES), fill = p.adjust))+geom_col()+theme_bw()
+```
+
+
+
+
+```{r}
+# Create dataframe from ranked vector
+gene_df <- data.frame(
+    SYMBOL = names(gene_list),
+    stat = gene_list
+)
+
+# Convert symbols to Entrez IDs
+gene_conv <- bitr(
+    gene_df$SYMBOL,
+    fromType = "SYMBOL",
+    toType = "ENTREZID",
+    OrgDb = org.Hs.eg.db
+)
+
+# Merge back with statistics
+gene_df <- merge(
+    gene_df,
+    gene_conv,
+    by = "SYMBOL"
+)
+
+gene_df <- gene_df[!duplicated(gene_df$ENTREZID), ]
+
+gene_list <- gene_df$stat
+names(gene_list) <- gene_df$ENTREZID
+
+# Sort decreasing
+gene_list <- sort(gene_list, decreasing = TRUE)
+```
+
+```{r}
+reactome_res <- gsePathway(gene_list, 
+                pvalueCutoff = 0.05,
+                pAdjustMethod = "BH", 
+                verbose = T)
+reactome_df <- as.data.frame(reactome_res)
+```
+
+### get version with gene names
+```{r}
+reactome_res_readable <- setReadable(
+    reactome_res,
+    OrgDb = org.Hs.eg.db,
+    keyType = "ENTREZID"
+)
+reactome_df <- as.data.frame(reactome_res_readable)
+```
+
+### do some plotting
+```{r}
+p <- dotplot(reactome_res, showCategory=10, split=".sign") + facet_grid(.~.sign)+
+    scale_fill_distiller(palette = "Reds", direction = -1)
+p
+ggsave(plot = p, filename = "lineage3_reactome_gsea_dotplot.png", dpi = 300, height = 7, width = 9)
+```
+```{r}
+reactome_res$Description
+```
+
+```{r}
+plot_df <- reactome_df %>%
+    filter(p.adjust < 0.01) %>%
+    arrange(desc(abs(NES))) %>%
+    slice_head(n = 20)
+
+ggplot(plot_df,
+       aes(x = NES,
+           y = Description,
+           colour = p.adjust)) +
+  geom_col() +
+  labs(
+    x = expression(-log[10]("FDR")),
+    y = NULL,
+    colour = "NES"
+  ) +
+  theme_bw()
+```
+
+```{r}
+p <- gseaplot2(reactome_res, geneSetID = 25, title = reactome_res$Description[25])
+p
+ggsave(plot = p, filename = "KRAB_ZFP_enrichment_plot.png", dpi = 300, height = 5, width = 6)
+```
+
+
+# trying ORA instead of gsea to see if it helps get mroe specific results
+
+```{r}
+lineage1_up <- degs %>%
+    filter(group == "Lineage1") %>%
+    filter(pvals_adj < 0.05) %>%
+    filter(logfoldchanges > 1)
+genes <- lineage1_up$names
+```
+
+```{r}
+go_enrich <- enrichGO(
+    gene = genes,
+    OrgDb = org.Hs.eg.db,
+    keyType = "SYMBOL"
+)
+
+go_res <- simplify(
+  go_enrich,
+  cutoff = 0.5,
+  by = "p.adjust",
+  select_fun = min,
+  measure = "Wang",
+  semData = NULL
+)
+go_res <- as.data.frame(go_res)
+```
+
+```{r}
+plot_input <- go_res %>%
+  arrange(p.adjust) %>%
+  slice_head(n = 20) %>%
+  mutate(FDR = -log10(p.adjust))
+
+ggplot(plot_input, aes(x = FDR, 
+                       y = reorder(Description, FDR))) +
+  geom_col() +
+  theme_bw() +
+  labs(x = "-log10(FDR)", y = "GO term")
+```
+
+# fgsea using immune pathways
+```{r}
+library(msigdbr)
+```
+
+```{r}
+immune_sets <- msigdbr(
+    species = "Homo sapiens",
+    category = "C7"
+)
+
+immune_term2gene <- immune_sets %>%
+    dplyr::select(gs_name, gene_symbol)
+```
+
+```{r}
+hallmark <- msigdbr(
+    species = "Homo sapiens",
+    category = "H"
+)
+
+hallmark_term2gene <- hallmark %>%
+    dplyr::select(gs_name, gene_symbol)
+```
+
+```{r}
+gsea_results <- GSEA(
+    geneList = gene_list,
+    TERM2GENE = hallmark_term2gene
+)
+gsea_results <- as.data.frame(gsea_results)
+gsea_results <- filter(gsea_results, p.adjust < 0.05)
+```
+
+```{r}
+branch_pathways <- gsea_results
+```
+
+# using TF enrichment results to perform ORA
+```{r}
+branch_inactive <- read.csv("tf_enrichment/TFs_inactive_branch.csv")
+branch_persistent <- read.csv("tf_enrichment/TFs_active_branch_persisting.csv")
+```
+
+# reactome
+```{r}
+genes <- branch_persistent$name
+gene_conv <- bitr(
+    genes,
+    fromType = "SYMBOL",
+    toType = "ENTREZID",
+    OrgDb = org.Hs.eg.db
+)
+```
+
+```{r}
+res <- enrichPathway(gene_conv$ENTREZID, readable = T)
+res <- as.data.frame(res)
+```
+
+```{r}
+top_res <- res %>%
+    arrange((abs(p.adjust))) %>%
+    slice_head(n = 20)
+ggplot(top_res, aes(x= -log10(p.adjust), y = reorder(Description, -log10(p.adjust))))+geom_col()+theme_bw()
+```
