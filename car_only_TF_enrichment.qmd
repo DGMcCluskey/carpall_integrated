@@ -275,6 +275,13 @@ score = dc.pp.get_obsm(adata=cars, key="score_ulm")
 score
 ```
 
+# add a lineage_patient grouping to be able to check if tfs behave the same across individuals
+```{python}
+score.obs["lineage_patient"] = (
+    score.obs["lineage_group"].astype(str) + "_" + cars.obs["Patient"].astype(str)
+)
+```
+
 ```{python}
 df = dc.tl.rankby_group(adata=score, groupby="lineage_group", reference="rest", method="t-test_overestim_var")
 df = df[df["padj"] < 0.05]
@@ -472,8 +479,8 @@ dc.pl.network(
     data=gex_branch,
     score=score_branch,
     net=collectri,
-    sources=["ZBTB4", "ZBED1", "MYC", "PTF1A", "SIX4"],
-    targets=10,
+    sources=["NCOA1","SOX4","RORA", "CREBZF"],
+    targets=20,
     size_node=5,
     figsize=(5, 5),
     s_cmap="Reds",
@@ -497,12 +504,13 @@ markers = {
 ```
 
 ```{python}
+score_no_other = score[score.obs["lineage_group"]!="Other"].copy()
 plt.close()
 sc.pl.matrixplot(
-    adata=score,
-    var_names=["JUN", "FOXO1"],
-    groupby="lineage_group",
-    dendrogram=True,
+    adata=score_no_other,
+    var_names=plot_df.name,
+    groupby="lineage_patient",
+    dendrogram=False,
     standard_scale="var",
     colorbar_title="Z-scaled scores",
     cmap="RdBu_r"
@@ -513,7 +521,7 @@ sc.pl.matrixplot(
 plt.close()
 sc.pl.dotplot(
     adata=cars,
-    var_names=["GATA3", "STAT6", "IRF4", "STAT5A", "IL4R", "MRPS26", "RORC", "RORA", "KLRB1", "STAT3","TBX21", "IFNG"],
+    var_names=["GATA3", "STAT6", "IRF4", "STAT5A", "IL4R", "MRPS26", "RORC", "RORA", "KLRB1", "STAT3","TBX21", "IFNG", "IL10", "ITGAE", "CTLA4", "TIGIT", "CD28", "IKZF2", "IL17A", "IL17F", "IL23A", "IL22", "IL4", "IL5", "IL13", "TGFB1", "IL9", "IL21", "STAT1", "STAT4", "TRAF2", "TRAF3", "TRAF6", "CD40", "TNFRSF11A", "LTBR", "SMAD3", "E2F8", "TGFBR1", "TGFBR2", "TGFBR3"],
     groupby="lineage_group",
     dendrogram=True,
     standard_scale="var",
@@ -547,7 +555,7 @@ dc.pl.network(
     data=gex_branch,
     score=score_branch,
     net=collectri,
-    sources="NFATC1",
+    sources=["GATA3", "STAT6", "STAT1"],
     targets=10,
     size_node=5,
     figsize=(5, 5),
@@ -614,4 +622,35 @@ dc.pl.network(
     t_label="log-normalized expression",
     save="tf_enrichment/late_tf_network.png"
 )
+```
+
+# TFs enriched in branch but not in others
+```{python}
+branch_tfs = df[df.group=="Branch"]
+branch_tfs = branch_tfs[~branch_tfs["name"].isin(persistent_like["name"])]
+branch_tfs_up = branch_tfs[branch_tfs.direction=="up"]
+branch_tfs_down = branch_tfs[branch_tfs.direction=="down"]
+```
+
+```{python}
+plt.close("all")
+plt.figure(figsize=(24,8))
+sc.pl.matrixplot(
+    adata=score,
+    var_names=branch_tfs.name,
+    groupby="lineage_group",
+    dendrogram=False,
+    standard_scale="var",
+    colorbar_title="Z-scaled scores",
+    cmap="RdBu_r"
+)
+plt.savefig("tf_enrichment/branch_only.png", dpi=300)
+plt.close()
+```
+
+# save various TF lists to put into pathway enrichment analysis
+```{python}
+persistent_up.to_csv("tf_enrichment/TFs_active_branch_persisting.csv")
+branch_tfs_up.to_csv("tf_enrichment/TFs_active_branch.csv")
+branch_tfs_down.to_csv("tf_enrichment/TFs_inactive_branch.csv")
 ```
