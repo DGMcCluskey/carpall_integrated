@@ -670,6 +670,36 @@ p = (
 p.save("car_only/labels_proportions_patient.png", dpi=300, bbox_inches="tight")
 ```
 
+```{python}
+counts = pd.crosstab(
+    [cars.obs["Patient"], cars.obs["Timepoint_bin"]],
+    cars.obs["labels"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = ["Patient", "Timepoint_bin"], var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="Patient", y="percent", color="celltype")
+    .scale(color=label_palette)
+    .add(so.Bar(), so.Stack())
+    .facet(row="Timepoint_bin")
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(8,8))
+)
+
+p.save("car_only/labels_proportions_patient_and_time.png", dpi=300, bbox_inches="tight")
+```
+
 # trying PAGA psuedotime to see how it performs compared to slingshot
 ```{python}
 sc.tl.paga(car_subset, groups = "labels")
@@ -681,4 +711,8 @@ plt.figure(figsize=(5,5))
 sc.pl.paga(car_subset, threshold=0.05, show=False, node_size_power=1, fontoutline=2,frameon=False)
 plt.savefig("car_only/PAGA_network.png", dpi=300, bbox_inches="tight")
 plt.close
+```
+
+```{python}
+sc.pl.umap(cars, color = ["IL10", "IFNG", "TNF", "IL4R", "TNFSF4", "CTLA4"], layer = "logcounts", legend_fontsize="x-large", size = 10, ncols = 2, frameon = False, cmap = "rocket", return_fig=True)
 ```
