@@ -52,7 +52,8 @@ SlingshotDataSet(sce)
 
 ### save object to not have to run again
 ```{r}
-saveRDS(sce, file = "car_only/car_slingshot_object.rds")
+#saveRDS(sce, file = "car_only/car_slingshot_object.rds")
+sce <- readRDS("car_only/car_slingshot_object.rds")
 ```
 
 ```{r}
@@ -95,10 +96,14 @@ colnames(edge_list) <- c("from", "to")
 
 ```{r}
 edges <- edge_list %>%
-  left_join(nodes, by = c("from" = "cluster")) %>%
-  rename(x = UMAP_1, y = UMAP_2) %>%
-  left_join(nodes, by = c("to" = "cluster")) %>%
-  rename(xend = UMAP_1, yend = UMAP_2)
+  left_join(
+    nodes %>% dplyr::rename(x = UMAP_1, y = UMAP_2),
+    by = c("from" = "cluster")
+  ) %>%
+  left_join(
+    nodes %>% dplyr::rename(xend = UMAP_1, yend = UMAP_2),
+    by = c("to" = "cluster")
+  )
 
 edges
 ```
@@ -207,7 +212,7 @@ cell_df$pt_L3 <- pt[, "Lineage3"]
 pt_df <- as.data.frame(pt)
 pt_df$cell <- rownames(pt_df)
 
-pt_long <- pivot_longer(
+pt_long <- tidyr::pivot_longer(
   pt_df,
   cols = starts_with("Lineage"),
   names_to = "lineage",
@@ -249,4 +254,40 @@ write.csv(
     file = "slingshot_lineage_weights.csv",
     row.names = FALSE
 )
+```
+
+# plot gene expression along lineages
+```{r}
+genes <- c("GATA3", "STAT6", "STAT5A", "TBX21", "RORA", "NFKB2", "TGFB1", "MYD88", "B3GAT1", "TGFBR3", "PPARA", "PDCD1")
+
+expr_mat <- assay(sce, "counts")[genes, ]
+
+expr_long <- as.data.frame(t(expr_mat))
+expr_long$cell <- rownames(expr_long)
+
+expr_long <- tidyr::pivot_longer(
+  expr_long,
+  cols = all_of(genes),
+  names_to = "gene",
+  values_to = "expression"
+)
+
+cell_meta <- cell_df
+cell_meta$cell <- rownames(cell_df)
+
+expr_long <- merge(
+  expr_long,
+  cell_meta[,c("cell","pt_L1","pt_L3")],
+  by="cell"
+)
+
+plot_input <- tidyr::pivot_longer(expr_long, names_to = "lineage", values_to = "pseudotime", cols = 4:5)
+```
+```{r}
+ggplot(plot_input,
+       aes(pseudotime, expression, color = lineage, linetype = lineage)) +
+  geom_smooth(se = F) +
+  facet_wrap(~gene, scales="free_y") +
+  theme_classic()+
+  scale_colour_manual(values = c("orange", "mediumvioletred"))
 ```
