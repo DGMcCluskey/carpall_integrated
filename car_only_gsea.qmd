@@ -66,18 +66,24 @@ lin1_unique_up <- setdiff(
     union(lin3_tfs_up$name, branch_tfs_up$name)
 )
 
-branch_lin1_both_up <- setdiff(intersect(branch_tfs_up$name, lin1_tfs_up$name), lin3_tfs_up$name)
+branch_lin1_shared_up <- setdiff(intersect(branch_tfs_up$name, lin1_tfs_up$name), lin3_tfs_up$name)
+
+branch_lin3_shared_down <- setdiff(intersect(branch_tfs_down$name, lin3_tfs_down$name), lin1_tfs_down$name)
 
 lin3_unique_down <- setdiff(
     lin3_tfs_down$name,
     union(lin1_tfs_down$name, branch_tfs_down$name)
 )
 
+lin1_lin3_shared_up <- setdiff(intersect(lin1_tfs_up$name, lin3_tfs_up$name), branch_tfs_up$name)
+
 gene_lists <- list(
   branch_unique_down = branch_unique_down,
-  branch_lin1_both_up = branch_lin1_both_up,
+  branch_lin1_shared_up = branch_lin1_shared_up,
   lin3_unique_down = lin3_unique_down,
-  lin1_unique_up = lin1_unique_up
+  lin1_unique_up = lin1_unique_up,
+  branch_lin3_shared_down = branch_lin3_shared_down,
+  lin1_lin3_shared_up = lin1_lin3_shared_up
 )
 ```
 
@@ -109,15 +115,17 @@ for (name in names(results)) {
     slice_head(n = 10)
 
   p <- ggplot(top_res,
-              aes(x = -log10(p.adjust),
-                  y = reorder(Description, -log10(p.adjust)))) +
+            aes(x = -log10(p.adjust),
+                y = reorder(str_wrap(Description, width = 50),
+                            -log10(p.adjust)))) +
     geom_col(fill = "grey50") +
     theme_bw() +
     ggtitle(name) +
     theme(
       text = element_text(size = 12, colour = "black"),
-      axis.text = element_text(size = 12, colour = "black"),
-      plot.title = element_text(face = "bold", hjust = 0.5)
+      axis.text.x = element_text(size = 11, colour = "black"),
+      axis.text.y = element_text(size = 12, colour = "black", face = "bold"),
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 12)
     ) +
     ylab(NULL) +
     geom_vline(xintercept = -log10(0.05),
@@ -128,7 +136,7 @@ for (name in names(results)) {
     filename = paste0("car_only/", name, "_ORA.png"),
     plot = p,
     dpi = 300,
-    height = 3,
+    height = 5,
     width = 8
   )
 }
