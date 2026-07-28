@@ -118,6 +118,18 @@ plt.close
 ```
 
 ```{python}
+ax = sc.pl.heatmap(
+    cars,
+    var_names = ["GATA3", "IL4R"],
+    groupby="lineage_group",
+    cmap="RdBu_r",
+    dendrogram=True,
+    swap_axes=True,
+    figsize=(11, 4),
+)
+```
+
+```{python}
 cell_counts = cars.obs["lineage_group"].value_counts().reset_index(name="n_cells")
 
 plt.close("all")
@@ -479,8 +491,8 @@ dc.pl.network(
     data=gex_branch,
     score=score_branch,
     net=collectri,
-    sources=["NCOA1","SOX4","RORA", "CREBZF"],
-    targets=20,
+    sources=["IRF1", "IRF2", "IRF3", "IRF4", "IRF8", "IRF9"],
+    targets=10,
     size_node=5,
     figsize=(5, 5),
     s_cmap="Reds",

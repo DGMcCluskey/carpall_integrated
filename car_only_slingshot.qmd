@@ -258,7 +258,7 @@ write.csv(
 
 # plot gene expression along lineages
 ```{r}
-genes <- c("GATA3", "STAT6", "STAT5A", "TBX21", "RORA", "NFKB2", "TGFB1", "MYD88", "B3GAT1", "TGFBR3", "PPARA", "PDCD1")
+genes <- c("GATA3", "STAT6", "STAT5A", "IL4R", "TBX21", "NFKB2", "TGFB1", "IL10", "MYD88", "TGFBR3", "PPARA", "PDCD1", "IFNG", "ISG15", "MX1", "TNFSF10")
 
 expr_mat <- assay(sce, "counts")[genes, ]
 
