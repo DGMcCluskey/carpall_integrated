@@ -118,6 +118,18 @@ plt.close
 ```
 
 ```{python}
+ax = sc.pl.heatmap(
+    cars,
+    var_names = ["GATA3", "IL4R"],
+    groupby="lineage_group",
+    cmap="RdBu_r",
+    dendrogram=True,
+    swap_axes=True,
+    figsize=(11, 4),
+)
+```
+
+```{python}
 cell_counts = cars.obs["lineage_group"].value_counts().reset_index(name="n_cells")
 
 plt.close("all")
@@ -479,8 +491,8 @@ dc.pl.network(
     data=gex_branch,
     score=score_branch,
     net=collectri,
-    sources=["NCOA1","SOX4","RORA", "CREBZF"],
-    targets=20,
+    sources=["IRF1", "IRF2", "IRF3", "IRF4", "IRF8", "IRF9"],
+    targets=10,
     size_node=5,
     figsize=(5, 5),
     s_cmap="Reds",
@@ -627,9 +639,16 @@ dc.pl.network(
 # TGetting list of TFs enriched in each lineage, to overlap/compare and to then run ORA on
 ```{python}
 branch_tfs = df[df.group=="Branch"]
-branch_tfs = branch_tfs[~branch_tfs["name"].isin(persistent_like["name"])]
 branch_tfs_up = branch_tfs[branch_tfs.direction=="up"]
 branch_tfs_down = branch_tfs[branch_tfs.direction=="down"]
+
+lin1_tfs = df[df.group=="Lineage1"]
+lin1_tfs_up = lin1_tfs[lin1_tfs.direction=="up"]
+lin1_tfs_down = lin1_tfs[lin1_tfs.direction=="down"]
+
+lin3_tfs = df[df.group=="Lineage3"]
+lin3_tfs_up = lin3_tfs[lin3_tfs.direction=="up"]
+lin3_tfs_down = lin3_tfs[lin3_tfs.direction=="down"]
 ```
 
 ```{python}
@@ -650,8 +669,12 @@ plt.close()
 
 # save various TF lists to put into pathway enrichment analysis
 ```{python}
-persistent_up.to_csv("tf_enrichment/TFs_active_branch_persisting.csv")
-persistent_down.to_csv("tf_enrichment/TFs_inactive_branch_persisting.csv")
 branch_tfs_up.to_csv("tf_enrichment/TFs_active_branch.csv")
 branch_tfs_down.to_csv("tf_enrichment/TFs_inactive_branch.csv")
+
+lin1_tfs_up.to_csv("tf_enrichment/TFs_active_lineage1.csv")
+lin1_tfs_down.to_csv("tf_enrichment/TFs_inactive_lineage1.csv")
+
+lin3_tfs_up.to_csv("tf_enrichment/TFs_active_lineage3.csv")
+lin3_tfs_down.to_csv("tf_enrichment/TFs_inactive_lineage3.csv")
 ```

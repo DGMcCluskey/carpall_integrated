@@ -16,266 +16,128 @@ library(presto)
 library(ggplot2)
 library(viridis)
 library(RColorBrewer)
-```
-
-```{r}
-degs <- read.csv("lineage_degs.csv")
-```
-
-```{r}
-gene_list <- degs$logfoldchanges * -log10(degs$pvals_adj)
-
-names(gene_list) <- degs$names
-
-gene_list <- sort(gene_list, decreasing = TRUE)
-```
-
-```{r}
-branch_rank <- degs %>%
-  filter(group == "Branch") %>%    # optional
-  arrange(desc(scores))
-```
-
-```{r}
-gene_list <- branch_rank$scores
-names(gene_list) <- branch_rank$names
-```
-
-```{r}
-go_res <- gseGO(
-    geneList = gene_list,
-    OrgDb = org.Hs.eg.db,
-    keyType = "SYMBOL",
-    ont = "BP",
-    minGSSize = 10,
-    maxGSSize = 500,
-    pvalueCutoff = 0.05,
-    verbose = TRUE
-)
-
-go_res <- simplify(
-  go_res,
-  cutoff = 0.7,
-  by = "p.adjust",
-  select_fun = min,
-  measure = "Wang",
-  semData = NULL
-)
-```
-
-```{r}
-go_df <- as.data.frame(go_res)
-```
-
-```{r}
-p <- dotplot(go_res, showCategory=10, split=".sign") + facet_grid(.~.sign)+
-    scale_fill_distiller(palette = "Reds", direction = -1)
-p
-ggsave(plot = p, filename = "lineage1_go_gsea_dotplot.png", dpi = 300, height = 7, width = 9)
-```
-
-```{r}
-top_bottom_df <- go_df %>%
-    arrange(desc(NES)) %>%
-    slice(c(1:10, (n() - 9):n()))
-```
-```{r}
-ggplot(top_bottom_df, aes(x= NES, y = reorder(Description, NES), fill = p.adjust))+geom_col()+theme_bw()
-```
-
-
-
-
-```{r}
-# Create dataframe from ranked vector
-gene_df <- data.frame(
-    SYMBOL = names(gene_list),
-    stat = gene_list
-)
-
-# Convert symbols to Entrez IDs
-gene_conv <- bitr(
-    gene_df$SYMBOL,
-    fromType = "SYMBOL",
-    toType = "ENTREZID",
-    OrgDb = org.Hs.eg.db
-)
-
-# Merge back with statistics
-gene_df <- merge(
-    gene_df,
-    gene_conv,
-    by = "SYMBOL"
-)
-
-gene_df <- gene_df[!duplicated(gene_df$ENTREZID), ]
-
-gene_list <- gene_df$stat
-names(gene_list) <- gene_df$ENTREZID
-
-# Sort decreasing
-gene_list <- sort(gene_list, decreasing = TRUE)
-```
-
-```{r}
-reactome_res <- gsePathway(gene_list, 
-                pvalueCutoff = 0.05,
-                pAdjustMethod = "BH", 
-                verbose = T)
-reactome_df <- as.data.frame(reactome_res)
-```
-
-### get version with gene names
-```{r}
-reactome_res_readable <- setReadable(
-    reactome_res,
-    OrgDb = org.Hs.eg.db,
-    keyType = "ENTREZID"
-)
-reactome_df <- as.data.frame(reactome_res_readable)
-```
-
-### do some plotting
-```{r}
-p <- dotplot(reactome_res, showCategory=10, split=".sign") + facet_grid(.~.sign)+
-    scale_fill_distiller(palette = "Reds", direction = -1)
-p
-ggsave(plot = p, filename = "lineage3_reactome_gsea_dotplot.png", dpi = 300, height = 7, width = 9)
-```
-```{r}
-reactome_res$Description
-```
-
-```{r}
-plot_df <- reactome_df %>%
-    filter(p.adjust < 0.01) %>%
-    arrange(desc(abs(NES))) %>%
-    slice_head(n = 20)
-
-ggplot(plot_df,
-       aes(x = NES,
-           y = Description,
-           colour = p.adjust)) +
-  geom_col() +
-  labs(
-    x = expression(-log[10]("FDR")),
-    y = NULL,
-    colour = "NES"
-  ) +
-  theme_bw()
-```
-
-```{r}
-p <- gseaplot2(reactome_res, geneSetID = 25, title = reactome_res$Description[25])
-p
-ggsave(plot = p, filename = "KRAB_ZFP_enrichment_plot.png", dpi = 300, height = 5, width = 6)
-```
-
-
-# trying ORA instead of gsea to see if it helps get mroe specific results
-
-```{r}
-lineage1_up <- degs %>%
-    filter(group == "Lineage1") %>%
-    filter(pvals_adj < 0.05) %>%
-    filter(logfoldchanges > 1)
-genes <- lineage1_up$names
-```
-
-```{r}
-go_enrich <- enrichGO(
-    gene = genes,
-    OrgDb = org.Hs.eg.db,
-    keyType = "SYMBOL"
-)
-
-go_res <- simplify(
-  go_enrich,
-  cutoff = 0.5,
-  by = "p.adjust",
-  select_fun = min,
-  measure = "Wang",
-  semData = NULL
-)
-go_res <- as.data.frame(go_res)
-```
-
-```{r}
-plot_input <- go_res %>%
-  arrange(p.adjust) %>%
-  slice_head(n = 20) %>%
-  mutate(FDR = -log10(p.adjust))
-
-ggplot(plot_input, aes(x = FDR, 
-                       y = reorder(Description, FDR))) +
-  geom_col() +
-  theme_bw() +
-  labs(x = "-log10(FDR)", y = "GO term")
-```
-
-# fgsea using immune pathways
-```{r}
-library(msigdbr)
-```
-
-```{r}
-immune_sets <- msigdbr(
-    species = "Homo sapiens",
-    category = "C7"
-)
-
-immune_term2gene <- immune_sets %>%
-    dplyr::select(gs_name, gene_symbol)
-```
-
-```{r}
-hallmark <- msigdbr(
-    species = "Homo sapiens",
-    category = "H"
-)
-
-hallmark_term2gene <- hallmark %>%
-    dplyr::select(gs_name, gene_symbol)
-```
-
-```{r}
-gsea_results <- GSEA(
-    geneList = gene_list,
-    TERM2GENE = hallmark_term2gene
-)
-gsea_results <- as.data.frame(gsea_results)
-gsea_results <- filter(gsea_results, p.adjust < 0.05)
-```
-
-```{r}
-branch_pathways <- gsea_results
+library(VennDiagram)
+library(ggVennDiagram)
 ```
 
 # using TF enrichment results to perform ORA
 ```{r}
-branch_inactive <- read.csv("tf_enrichment/TFs_inactive_branch.csv")
-branch_persistent <- read.csv("tf_enrichment/TFs_active_branch_persisting.csv")
+branch_tfs_up <- read.csv("tf_enrichment/TFs_active_branch.csv")
+branch_tfs_down <- read.csv("tf_enrichment/TFs_inactive_branch.csv")
+
+lin1_tfs_up <- read.csv("tf_enrichment/TFs_active_lineage1.csv")
+lin1_tfs_down <- read.csv("tf_enrichment/TFs_inactive_lineage1.csv")
+
+lin3_tfs_up <- read.csv("tf_enrichment/TFs_active_lineage3.csv")
+lin3_tfs_down <- read.csv("tf_enrichment/TFs_inactive_lineage3.csv")
 ```
 
-# reactome
+# perform venn comparisons to see who shares what
+
 ```{r}
-genes <- branch_persistent$name
-gene_conv <- bitr(
-    genes,
-    fromType = "SYMBOL",
-    toType = "ENTREZID",
-    OrgDb = org.Hs.eg.db
+venn.diagram(x=list(branch_tfs_up$name, lin1_tfs_up$name, lin3_tfs_up$name),
+    category.names = c("Branch", "Lineage1", "Lineage3"),
+    height = 1000, width = 1000, 
+    filename = "car_only/active_TFs_venn.png",
+    resolution = 300,
+    fill = c("mediumseagreen", "orange", "mediumvioletred"),
+    col="white", alpha = 0.5, cex = 1.5, fontface = "bold", fontfamily = "sans", cat.cex = 0.8, lwd = 3,
+    cat.fontfamily = "sans")
+
+venn.diagram(x=list(branch_tfs_down$name, lin1_tfs_down$name, lin3_tfs_down$name),
+    category.names = c("Branch", "Lineage1", "Lineage3"),
+    height = 1000, width = 1000, 
+    filename = "car_only/inactive_TFs_venn.png",
+    resolution = 300,
+    fill = c("mediumseagreen", "orange", "mediumvioletred"),
+    col="white", alpha = 0.5, cex = 1.5, fontface = "bold", fontfamily = "sans", cat.cex = 0.8, lwd = 3,
+    cat.fontfamily = "sans")
+```
+
+# get specific gene sets of interest
+```{r}
+branch_unique_down <- setdiff(
+    branch_tfs_down$name,
+    union(lin1_tfs_down$name, lin3_tfs_down$name)
+)
+
+lin1_unique_up <- setdiff(
+    lin1_tfs_up$name,
+    union(lin3_tfs_up$name, branch_tfs_up$name)
+)
+
+branch_lin1_shared_up <- setdiff(intersect(branch_tfs_up$name, lin1_tfs_up$name), lin3_tfs_up$name)
+
+branch_lin3_shared_down <- setdiff(intersect(branch_tfs_down$name, lin3_tfs_down$name), lin1_tfs_down$name)
+
+lin3_unique_down <- setdiff(
+    lin3_tfs_down$name,
+    union(lin1_tfs_down$name, branch_tfs_down$name)
+)
+
+lin1_lin3_shared_up <- setdiff(intersect(lin1_tfs_up$name, lin3_tfs_up$name), branch_tfs_up$name)
+
+gene_lists <- list(
+  branch_unique_down = branch_unique_down,
+  branch_lin1_shared_up = branch_lin1_shared_up,
+  lin3_unique_down = lin3_unique_down,
+  lin1_unique_up = lin1_unique_up,
+  branch_lin3_shared_down = branch_lin3_shared_down,
+  lin1_lin3_shared_up = lin1_lin3_shared_up
 )
 ```
 
 ```{r}
-res <- enrichPathway(gene_conv$ENTREZID, readable = T)
-res <- as.data.frame(res)
+results <- lapply(names(gene_lists), function(name) {
+  genes <- gene_lists[[name]]
+
+  gene_conv <- bitr(
+    genes,
+    fromType = "SYMBOL",
+    toType = "ENTREZID",
+    OrgDb = org.Hs.eg.db
+  )
+
+  res <- enrichPathway(gene_conv$ENTREZID, readable = TRUE)
+   res <- as.data.frame(res)
+})
+
+names(results) <- names(gene_lists)
 ```
 
 ```{r}
-top_res <- res %>%
-    arrange((abs(p.adjust))) %>%
-    slice_head(n = 20)
-ggplot(top_res, aes(x= -log10(p.adjust), y = reorder(Description, -log10(p.adjust))))+geom_col()+theme_bw()
+for (name in names(results)) {
+
+  res <- results[[name]]
+
+  top_res <- res %>%
+    arrange(p.adjust) %>%
+    slice_head(n = 10)
+
+  p <- ggplot(top_res,
+            aes(x = -log10(p.adjust),
+                y = reorder(str_wrap(Description, width = 50),
+                            -log10(p.adjust)))) +
+    geom_col(fill = "grey50") +
+    theme_bw() +
+    ggtitle(name) +
+    theme(
+      text = element_text(size = 12, colour = "black"),
+      axis.text.x = element_text(size = 11, colour = "black"),
+      axis.text.y = element_text(size = 12, colour = "black", face = "bold"),
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 12)
+    ) +
+    ylab(NULL) +
+    geom_vline(xintercept = -log10(0.05),
+               linetype = "dashed",
+               colour = "black")
+
+  ggsave(
+    filename = paste0("car_only/", name, "_ORA.png"),
+    plot = p,
+    dpi = 300,
+    height = 5,
+    width = 8
+  )
+}
 ```
