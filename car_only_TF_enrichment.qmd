@@ -521,7 +521,7 @@ sc.pl.matrixplot(
 plt.close()
 sc.pl.dotplot(
     adata=cars,
-    var_names=["GATA3", "STAT6", "IRF4", "STAT5A", "IL4R", "MRPS26", "RORC", "RORA", "KLRB1", "STAT3","TBX21", "IFNG", "IL10", "ITGAE", "CTLA4", "TIGIT", "CD28", "IKZF2", "IL17A", "IL17F", "IL23A", "IL22", "IL4", "IL5", "IL13", "TGFB1", "IL9", "IL21", "STAT1", "STAT4", "TRAF2", "TRAF3", "TRAF6", "CD40", "TNFRSF11A", "LTBR", "SMAD3", "E2F8", "TGFBR1", "TGFBR2", "TGFBR3"],
+    var_names=["GATA3", "STAT6", "IRF4", "STAT5A", "IL4R", "MRPS26", "RORC", "RORA", "KLRB1", "STAT3","TBX21", "IFNG", "IL10", "ITGAE", "CTLA4", "TIGIT", "CD28", "IKZF2", "IL17A", "IL17F", "IL23A", "IL22", "IL4", "IL5", "IL13", "TGFB1", "IL9", "IL21", "STAT1", "STAT4", "TRAF2", "TRAF3", "TRAF6", "CD40", "TNFRSF11A", "LTBR", "SMAD3", "E2F8", "TGFBR1", "TGFBR2", "TGFBR3", "PDCD1", "CD274"],
     groupby="lineage_group",
     dendrogram=True,
     standard_scale="var",
@@ -624,7 +624,7 @@ dc.pl.network(
 )
 ```
 
-# TFs enriched in branch but not in others
+# TGetting list of TFs enriched in each lineage, to overlap/compare and to then run ORA on
 ```{python}
 branch_tfs = df[df.group=="Branch"]
 branch_tfs = branch_tfs[~branch_tfs["name"].isin(persistent_like["name"])]
@@ -651,6 +651,7 @@ plt.close()
 # save various TF lists to put into pathway enrichment analysis
 ```{python}
 persistent_up.to_csv("tf_enrichment/TFs_active_branch_persisting.csv")
+persistent_down.to_csv("tf_enrichment/TFs_inactive_branch_persisting.csv")
 branch_tfs_up.to_csv("tf_enrichment/TFs_active_branch.csv")
 branch_tfs_down.to_csv("tf_enrichment/TFs_inactive_branch.csv")
 ```
