@@ -3,6 +3,8 @@ title: "Untitled"
 format: html
 ---
 
+# this 'script' is more of a cheatsheet, with different commands allowing for the finding or transferring of files en masse between the rdss, cluster and local system
+
 # script to transfer files from the cluster to local machine
 ```{bash}
 rsync -avh --progress  dmccluskey@10.0.7.5:/home/lab/dmccluskey/CARPALL_h5 ~/carpall_cellbender
@@ -16,4 +18,38 @@ rsync -avm --progress \
   --exclude='*' \
   /Volumes/ritd-ag-project-rd01k9-tacco78/scRNAseq_data_CARPALL/ \
   ../carpall_cellbender/CARPALL_h5/
+```
+
+# to find and confirm the presence of Sample folders within the directory of interest within the rdss
+```{bash}
+for i in {1..11}; do
+  file="/Volumes/ritd-ag-project-rd01f6-immic01/2023_04_17_stratos_ghorashian_amrolia_giustacchini_CARPALL_CPLpatients_sequencing_data/2023_05_31_cellranger_multi/cellranger_multi_run/Sample${i}/outs/multi/count/raw_feature_bc_matrix.h5"
+  if [ -f "$file" ]; then
+    echo "FOUND: Sample${i}"
+  else
+    echo "MISSING: Sample${i}"
+  fi
+done
+```
+
+# instead of rsyncing, we'll just copy over. first make subfolders for each sample
+```{bash}
+mkdir -p ../CARPALL_cohort_3_raw/Sample{1..11}
+```
+
+# to perform the copy of jsut the raw matrix folders from the rdss directory to my local one
+# cp is copy not move, so very safe
+```{bash}
+for i in {1..11}; do
+  cp -v \
+  "/Volumes/ritd-ag-project-rd01f6-immic01/2023_04_17_stratos_ghorashian_amrolia_giustacchini_CARPALL_CPLpatients_sequencing_data/2023_05_31_cellranger_multi/cellranger_multi_run/Sample${i}/outs/multi/count/raw_feature_bc_matrix.h5" \
+  "../CARPALL_cohort_3_raw/Sample${i}/"
+done
+```
+
+
+```{bash}
+find /Volumes/ritd-ag-project-rd01f6-immic01/2023_04_17_stratos_ghorashian_amrolia_giustacchini_CARPALL_CPLpatients_sequencing_data/2023_05_31_cellranger_multi/cellranger_multi_run \
+  -path '*/outs/multi/count/raw_feature_bc_matrix.h5' \
+  -print
 ```

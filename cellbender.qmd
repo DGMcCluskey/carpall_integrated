@@ -7,6 +7,7 @@ format: html
 # note: install cellbender into its own venv to avoid conflicts
 
 
+# cellbender for carpall cohort 1 samples
 ```{python}
 import os
 import pandas as pd
@@ -39,6 +40,49 @@ file_names = [
 
 for folder in sorted(file_names):
 
+    sample_dir = os.path.join(base_dir, folder)
+
+    input_file = os.path.join(
+        sample_dir,
+        "raw_feature_bc_matrix.h5"
+    )
+
+    output_file = os.path.join(
+        sample_dir,
+        "cellbender_output.h5"
+    )
+
+    if not os.path.exists(input_file):
+        print(f"{folder}: no raw matrix found")
+        continue
+
+    if os.path.exists(output_file):
+        print(f"{folder}: already processed")
+        continue
+
+    print(f"Running CellBender on {folder}")
+
+    subprocess.run(
+        [
+            "/Users/rmhadgm/venvs/cellbender/bin/cellbender",
+            "remove-background",
+            "--input", input_file,
+            "--output", output_file,
+        ],
+        check=True
+    )
+```
+
+# cellbender for carpall cohort 3 samples
+```{python}
+import os
+import subprocess
+
+base_dir = "../CARPALL_cohort_3_raw/"
+
+for i in range(1, 12):
+
+    folder = f"Sample{i}"
     sample_dir = os.path.join(base_dir, folder)
 
     input_file = os.path.join(
