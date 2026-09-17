@@ -10,6 +10,13 @@ format: html
 rsync -avh --progress  dmccluskey@10.0.7.5:/home/lab/dmccluskey/CARPALL_h5 ~/carpall_cellbender
 ```
 
+# transferring cohort 3 cellbender outputs to local machine (i've renamed cluster "UCL_cluster")
+```{bash}
+rsync -avh --progress \
+  UCL_cluster:/home/lab/dmccluskey/CARPALL_cohort_3_raw/ \
+  ../CARPALL_cohort_3_raw/
+```
+
 # to transfer filtered matrices to my cellbender output files (so that they are available when a cellbender file is missing due to it failing)
 ```{bash}
 rsync -avm --progress \
