@@ -82,3 +82,7 @@ carpall3.obs = carpall3.obs.join(
     on="file_id"
 )
 ```
+
+```{python}
+carpall3.write("1_carpallcohort3_cellbender_corrected.h5ad")
+```
