@@ -1,0 +1,84 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{python}
+import scanpy as sc
+import numpy as np
+import anndata as ad
+import pandas as pd
+import os
+```
+
+```{python}
+adatas = []
+
+base_dir = "../CARPALL_cohort_3_raw/"
+file_names = os.listdir(base_dir)
+
+
+sample_folders = [f for f in os.listdir(base_dir) if f.startswith("Sample")]
+
+adatas = []
+
+for folder in sample_folders:
+    sample_dir = os.path.join(base_dir, folder)
+    cellbender_path = os.path.join(
+        sample_dir,
+        "cellbender_output_filtered.h5"
+    )
+
+    print(f"\nProcessing {folder}")
+
+    sample_id = folder
+
+    adata = sc.read_10x_h5(cellbender_path)
+    adata.var_names_make_unique()
+
+    adata.obs_names = [f"{sample_id}_{bc}" for bc in adata.obs_names]
+    adata.obs["file_id"] = sample_id
+    adata.layers["counts"] = adata.X.copy()
+
+    adatas.append(adata)
+```
+
+# combine into one adata
+```{python}
+carpall3 = sc.concat(
+    adatas,
+    label="file_id",
+    keys=sample_folders
+)
+```
+
+# make a carpall column to can distinguish/batch correct easily down the line
+```{python}
+carpall3.obs["study"] = "carpall_three"
+```
+
+# add some metadata
+```{python}
+sample_metadata = {
+    "Sample1": {"Patient": "CPL27", "Timepoint": "Product", "Sample_id": "CPL27_Product"},
+    "Sample2": {"Patient": "CPL27", "Timepoint": "d14", "Sample_id": "CPL27_d14"},
+    "Sample3": {"Patient": "CPL27", "Timepoint": "d150", "Sample_id": "CPL27_d150"},
+    "Sample4": {"Patient": "CPL31", "Timepoint": "Product", "Sample_id": "CPL31_Product"},
+    "Sample5": {"Patient": "CPL31", "Timepoint": "d14", "Sample_id": "CPL31_d14"},
+    "Sample6": {"Patient": "CPL31", "Timepoint": "d150", "Sample_id": "CPL31_d150"},
+    "Sample7": {"Patient": "CPL33", "Timepoint": "Product", "Sample_id": "CPL33_Product"},
+    "Sample8": {"Patient": "CPL33", "Timepoint": "d14", "Sample_id": "CPL33_d14"},
+    "Sample9": {"Patient": "CPL33", "Timepoint": "d150", "Sample_id": "CPL33_d150"},
+    "Sample10": {"Patient": "HC1", "Timepoint": "NA", "Sample_id": "HC1",},
+    "Sample11": {"Patient": "HC2", "Timepoint": "NA", "Sample_id": "HC2"}
+}
+```
+
+```{python}
+metadata = pd.DataFrame.from_dict(sample_metadata, orient="index")
+
+carpall3.obs = carpall3.obs.join(
+    metadata,
+    on="file_id"
+)
+```
