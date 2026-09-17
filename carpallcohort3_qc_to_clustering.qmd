@@ -1,0 +1,303 @@
+---
+title: "Untitled"
+format: html
+---
+
+---
+title: "Untitled"
+format: html
+---
+
+
+```{python}
+import scanpy as sc
+import numpy as np
+import anndata as ad
+import pandas as pd
+import os
+import seaborn as sns
+from seaborn import objects as so
+import matplotlib.pyplot as plt
+import scvi
+import harmonypy as hm
+```
+
+```{python}
+carpall_three = sc.read("2_carpallcohort3_doublets_identified.h5ad")
+```
+
+# ensure X layer is set up properly as sce conversion for previous doublet detection can mess with it
+```{python}
+carpall_three.X = carpall_three.layers["counts"].copy()
+```
+
+# identify mito, ribo and hb genes
+```{python}
+carpall_three.var["mt"] = carpall_three.var_names.str.startswith("MT-")
+carpall_three.var["ribo"] = carpall_three.var_names.str.startswith(("RPS", "RPL"))
+carpall_three.var["hb"] = carpall_three.var_names.str.contains(r"^HB[ABDEGMQZ]\d*(?!\w)")
+```
+
+```{python}
+sc.pp.calculate_qc_metrics(
+    carpall_three, qc_vars=["mt", "ribo", "hb"], inplace=True, percent_top=[20], log1p=True
+)
+carpall_three
+```
+
+
+```{python}
+vars = ["pct_counts_mt", "pct_counts_ribo", "pct_counts_hb",
+        "n_genes_by_counts", "total_counts"]
+
+plt.close("all")
+
+sc.pl.stacked_violin(
+    carpall_three,
+    var_names=vars,
+    groupby="Sample_id",
+    stripplot=False,
+    swap_axes=True,
+    yticklabels=True,
+    row_palette="Set1"
+)
+
+fig = plt.gcf()
+
+for ax in fig.axes[1:4]:
+    ax.set_ylim(0, 100)
+    ax.set_yticks([25, 50, 75, 100])
+    ax.tick_params(axis="y", labelsize=5)
+
+ax = fig.axes[4]
+ymax = ax.get_ylim()[1]
+ax.set_ylim(0, ymax)
+ax.set_yticks([0, 2500, 5000, 7500, 10000])
+ax.tick_params(axis="y", labelsize=5)
+
+ax = fig.axes[5]
+ymax = ax.get_ylim()[1]
+ax.set_ylim(0, ymax)
+ax.set_yticks([0, 25000, 50000, 75000, 100000])
+ax.tick_params(axis="y", labelsize=5)
+
+fig.set_size_inches(6, 8)
+
+fig.savefig(
+    "./figures_cohort3/pre_qc_violins.png",
+    dpi=300,
+    bbox_inches="tight"
+)
+
+plt.show()
+plt.close(fig)
+```
+
+```{python}
+cell_counts = (
+    carpall_three.obs["Sample_id"]
+    .value_counts()
+    .reset_index()
+)
+
+cell_counts.columns = ["Sample_id", "n_cells"]
+cell_counts
+cell_counts.to_csv("sample_cell_counts_pre_qc.csv")
+```
+
+```{python}
+fig, ax = plt.subplots(figsize=(2, 2))
+
+cell_counts.set_index("Sample_id").plot(
+    kind="bar",
+    ax=ax,
+    legend=False
+)
+
+ax.set_xlabel("Sample_id")
+ax.set_ylabel("Number of cells")
+ax.set_title("Cells per sample")
+
+plt.xticks(rotation=45, ha="right")
+
+fig.tight_layout()
+
+fig.savefig(
+    "./figures_cohort3/pre_qc_sample_cell_counts.png",
+    dpi=300,
+    bbox_inches="tight"
+)
+
+plt.show()
+plt.close(fig)
+```
+
+```{python}
+carpall_three = carpall_three[(carpall_three.obs['pct_counts_mt'] < 20) & 
+    (carpall_three.obs['pct_counts_ribo'] < 50) &
+    (carpall_three.obs['pct_counts_hb'] < 10) &
+    (carpall_three.obs['total_counts'] > 500) & 
+    (carpall_three.obs['total_counts'] < 25000) & 
+    (carpall_three.obs['n_genes_by_counts'] > 300) & 
+    (carpall_three.obs['n_genes_by_counts'] < 6000), :].copy()
+```
+
+```{python}
+cell_counts = (
+    carpall_three.obs["Sample_id"]
+    .value_counts()
+    .reset_index()
+)
+
+cell_counts.columns = ["Sample_id", "n_cells"]
+cell_counts
+cell_counts.to_csv("sample_cell_counts_post_qc.csv")
+```
+
+```{python}
+pre = pd.read_csv("sample_cell_counts_pre_qc.csv")
+pre = pre.rename(columns = {"n_cells": "counts_pre"})
+post = pd.read_csv("sample_cell_counts_post_qc.csv")
+post = post.rename(columns = {"n_cells": "counts_post"})
+cell_counts = pd.merge(pre, post, how = "inner", on = "Sample_id")
+cell_counts = cell_counts.drop(columns = "Unnamed: 0_x")
+cell_counts = cell_counts.drop(columns = "Unnamed: 0_y")
+cell_counts = pd.melt(cell_counts, id_vars=["Sample_id"], var_name="qc_stage", value_name="n_cells")
+```
+
+```{python}
+plt.close("all")
+plt.clf()
+
+fig, ax = plt.subplots(figsize=(6, 4))
+
+sns.barplot(
+    data=cell_counts,
+    x="Sample_id",
+    y="n_cells",
+    hue="qc_stage",
+    ax=ax
+)
+
+fig.tight_layout()
+fig.savefig("./figures_cohort3/cell_counts_filtering.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+cell_counts = (
+    carpall_three.obs[["Patient", "Timepoint"]]
+    .value_counts()
+    .reset_index(name="n_cells")
+)
+
+
+plt.close("all")
+plt.clf()
+
+fig, ax = plt.subplots(figsize=(6, 4))
+
+sns.barplot(
+    data=cell_counts,
+    x="Patient",
+    y="n_cells",
+    hue="Timepoint",
+    ax=ax
+)
+
+fig.tight_layout()
+fig.savefig("./figures_cohort3/cell_counts_patient_time.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+carpall_three = carpall_three[
+    carpall_three.obs["doublet_class"].isin(["singlet"])
+].copy()
+```
+
+```{python}
+sc.pp.normalize_total(carpall_three, target_sum=1e4)
+sc.pp.log1p(carpall_three)
+carpall_three.layers['logcounts'] = carpall_three.X.copy()
+```
+
+```{python}
+plt.figure()
+sns.histplot(
+        carpall_three.layers['counts'].sum(1), bins=500, kde=False
+    )
+plt.show()
+
+plt.figure()
+sns.histplot(
+        carpall_three.layers['logcounts'].sum(1), bins=500, kde=False
+    )
+plt.show()
+```
+
+```{python}
+sc.pp.highly_variable_genes(
+    carpall_three, 
+    n_top_genes=2000, 
+    flavor="cell_ranger", 
+    batch_key="Sample_id", 
+    layer = 'logcounts',
+    subset = False
+)
+```
+
+# adding controversial scaling step - also allows latent variables such as percent mito to be regressed out
+# in seurat scaling is standard, only in scanpy seems an issue and i lean towards including it
+```{python}
+carpall_three_hvg = carpall_three[:, carpall_three.var.highly_variable].copy()
+
+sc.pp.regress_out(carpall_three_hvg, ["pct_counts_mt"])
+sc.pp.scale(carpall_three_hvg)
+sc.pp.pca(carpall_three_hvg)
+```
+
+```{python}
+carpall_three.obsm["X_pca"] = carpall_three_hvg.obsm["X_pca"]
+carpall_three.uns["pca"] = carpall_three_hvg.uns["pca"]
+```
+
+```{python}
+plt.figure()
+sc.pl.pca_variance_ratio(carpall_three, n_pcs=50, log=True)
+plt.savefig("./figures_cohort3/Elbow_plot.png", dpi=300)
+```
+
+```{python}
+sc.pp.neighbors(carpall_three, n_pcs=16, use_rep="X_pca")
+sc.tl.umap(carpall_three, random_state=2026)
+```
+
+```{python}
+fig = sc.pl.umap(carpall_three, color=["Patient", "Timepoint"], 
+wspace=0.5,show=False, size = 2, ncols=2,frameon = False, return_fig = True)
+fig.set_size_inches(14, 6)
+print(fig.get_size_inches())
+fig.savefig("./figures_cohort3/umap_uncorrected.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+features_car = carpall_three.var_names[
+    carpall_three.var_names.str.contains("CAR")].tolist()
+features_car
+```
+
+```{python}
+plt.close("all")
+fig=sc.pl.umap(carpall_three, color = ["CD3D", "CD3E", "LYZ", "NKG7", "GZMB", "CD79A", "CAR_CD19_variable_region", "CAR_CD22_variable_region", "PPBP", "PTPRC", "KLRD1", "TRDC"], layer = "logcounts", size=5, color_map="magma_r", show=False,return_fig=True)
+fig.set_size_inches(18, 10)
+print(fig.get_size_inches())
+fig.savefig("./figures_cohort3/uncorrected_umap_key_markers.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+carpall_three.write_h5ad("3_carpallcohort3_clustered.h5ad")
+carpall_three = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
+```
