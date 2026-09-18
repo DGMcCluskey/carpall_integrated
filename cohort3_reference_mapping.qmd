@@ -1,26 +1,24 @@
----
-title: "Untitled"
-format: html
----
-
 
 ```{python}
 import scanpy as sc
 import numpy as np
-import anndata as ad
+import anndata
 import pandas as pd
 import os
 import seaborn as sns
 from seaborn import objects as so
 import matplotlib.pyplot as plt
 import scvi
+from scvi.model import SCANVI
 import harmonypy as hm
 
-import anndata
-```
 
-```{python}
+# ============================================================
+# 1. Load reference and select reference HVGs
+# ============================================================
+
 ref = sc.read("2.5_car_no_gd.h5ad")
+
 sc.pl.umap(ref, color="labels")
 
 sc.pp.highly_variable_genes(
@@ -29,94 +27,153 @@ sc.pp.highly_variable_genes(
     batch_key="GEX_id",
     subset=True
 )
-```
 
 
-```{python}
+# ============================================================
+# 2. Load query and prepare it to match reference genes
+# ============================================================
+
 query = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
 
-query = query[:, ref.var_names].copy()
-```
+gene1 = np.asarray(
+    query[:, "CAR_CD19_variable_region"].X.toarray()
+).ravel()
 
-```{python}
+gene2 = np.asarray(
+    query[:, "CAR_CD22_variable_region"].X.toarray()
+).ravel()
+
+query = query[
+    (gene1 > 0.5) | (gene2 > 0.5)
+].copy()
+
+query.obs["Timepoint_bin"] = query.obs["Timepoint"]
+
+
+
+query = query[
+    query.obs["Timepoint_bin"].isin(["d14", "d150", "Product"])
+].copy()
+
+query = query[:, ref.var_names].copy()
+
+
+# ============================================================
+# 3. Train SCVI on the reference
+# ============================================================
+
 scvi.model.SCVI.setup_anndata(
     ref,
     layer="counts"
 )
-```
 
-```{python}
 model = scvi.model.SCVI(ref)
+
 model.train()
-```
 
-```{python}
-SCVI_LATENT_KEY = "X_scVI"
 
-ref.obsm[SCVI_LATENT_KEY] = model.get_latent_representation()
-sc.pp.neighbors(ref, use_rep=SCVI_LATENT_KEY)
-sc.tl.leiden(ref)
-sc.tl.umap(ref)
-```
+# ============================================================
+# 4. Train SCANVI using the reference labels
+# ============================================================
 
-```{python}
-sc.pl.umap(ref,
-    color="labels",
-    frameon=False,
-    ncols=1,
-)
-```
-
-```{python}
-scvi.model.SCVI.prepare_query_anndata(query, model)
-```
-
-```{python}
-scvi_query = scvi.model.SCVI.load_query_data(
-    query,
+scanvi_model = SCANVI.from_scvi_model(
     model,
+    unlabeled_category="Unknown",
+    labels_key="labels"
 )
-```
 
-```{python}
-scvi_query.train(max_epochs=200, plan_kwargs={"weight_decay": 0.0})
-query.obsm[SCVI_LATENT_KEY] = scvi_query.get_latent_representation()
-```
+scanvi_model.train()
 
-```{python}
-sc.pp.neighbors(query, use_rep=SCVI_LATENT_KEY)
-sc.tl.leiden(query)
-sc.tl.umap(query)
-```
 
-```{python}
-sc.pl.umap(query,
-    color="Patient",
-    frameon=False,
-    ncols=1,
+# ============================================================
+# 5. Get SCANVI latent representation for reference
+# ============================================================
+
+SCANVI_LATENT_KEY = "X_scANVI"
+SCANVI_PREDICTIONS_KEY = "predictions_scanvi"
+
+ref.obsm[SCANVI_LATENT_KEY] = (
+    scanvi_model.get_latent_representation()
 )
-```
 
-```{python}
-full = anndata.concat([query, ref])
-full
-```
 
-```{python}
-full.obsm[SCVI_LATENT_KEY] = scvi_query.get_latent_representation(full)
-```
+# ============================================================
+# 6. Map query onto the reference SCANVI model
+# ============================================================
 
-```{python}
-sc.pp.neighbors(full, use_rep=SCVI_LATENT_KEY)
-sc.tl.leiden(full)
+scvi.model.SCANVI.prepare_query_anndata(
+    query,
+    scanvi_model
+)
+
+scanvi_query = scvi.model.SCANVI.load_query_data(
+    query,
+    scanvi_model
+)
+
+scanvi_query.train(
+    max_epochs=200,
+    plan_kwargs={"weight_decay": 0.0}
+)
+
+
+# ============================================================
+# 7. Get query SCANVI latent representation + predictions
+# ============================================================
+
+query.obsm[SCANVI_LATENT_KEY] = (
+    scanvi_query.get_latent_representation()
+)
+
+query.obs[SCANVI_PREDICTIONS_KEY] = (
+    scanvi_query.predict()
+)
+
+
+# ============================================================
+# 8. Check query predictions
+# ============================================================
+
+print(query.obs[SCANVI_PREDICTIONS_KEY].value_counts())
+
+
+# ============================================================
+# 9. Combine reference + query for a new joint embedding
+# ============================================================
+
+ref.obs[SCANVI_PREDICTIONS_KEY] = ref.obs["labels"]
+
+full = anndata.concat(
+    [ref, query],
+    label="source",
+    join="inner"
+)
+
+sc.pp.neighbors(
+    full,
+    use_rep=SCANVI_LATENT_KEY
+)
+
 sc.tl.umap(full)
+
+
+# ============================================================
+# 10. Plot the new joint embedding
+# ============================================================
+
+sc.pl.umap(
+    full,
+    color=[
+        "source",
+        "Timepoint_bin",
+        "labels",
+        "predictions_scanvi"
+    ],
+    frameon=False,
+    ncols=1
+)
 ```
 
 ```{python}
-sc.pl.umap(
-    pancreas_full,
-    color="study",
-    frameon=False,
-    ncols=1,
-)
+full.write_h5ad("carpall_full_scanvi.h5ad")
 ```
