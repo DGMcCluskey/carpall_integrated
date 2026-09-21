@@ -1,4 +1,3 @@
-
 ```{python}
 import scanpy as sc
 import numpy as np
@@ -12,7 +11,11 @@ import scvi
 from scvi.model import SCANVI
 import harmonypy as hm
 
+import scarches as sca
+from scarches.dataset.trvae.data_handling import remove_sparsity
+```
 
+```{python}
 # ============================================================
 # 1. Load reference and select reference HVGs
 # ============================================================
@@ -112,8 +115,7 @@ scanvi_query = scvi.model.SCANVI.load_query_data(
 )
 
 scanvi_query.train(
-    max_epochs=200,
-    plan_kwargs={"weight_decay": 0.0}
+    max_epochs=200
 )
 
 
@@ -129,6 +131,11 @@ query.obs[SCANVI_PREDICTIONS_KEY] = (
     scanvi_query.predict()
 )
 
+prediction_probs = scanvi_query.predict(query, soft=True)
+
+query.obs["scanvi_score"] = prediction_probs.max(axis=1)
+
+ref.obs["scanvi_score"] = np.nan
 
 # ============================================================
 # 8. Check query predictions
@@ -167,13 +174,72 @@ sc.pl.umap(
         "source",
         "Timepoint_bin",
         "labels",
-        "predictions_scanvi"
+        "predictions_scanvi",
+        "CD4", "CD8A"
     ],
+    cmap="magma_r",
     frameon=False,
-    ncols=1
+    ncols=2
 )
 ```
 
 ```{python}
 full.write_h5ad("carpall_full_scanvi.h5ad")
+```
+
+```{python}
+sc.pl.correlation_matrix(full, groupby="predictions_scanvi")
+```
+
+```{python}
+sc.pl.umap(full, color = ["CD4", "CD8A", "TIGIT"], cmap="magma_r")
+```
+
+```{python}
+plt.close()
+sc.pl.umap(
+    full,
+    wspace=0.5,
+    color=[
+        "study",
+        "Timepoint_bin",
+        "labels",
+        "predictions_scanvi",
+        "Patient",
+        "scanvi_score"
+    ],
+    frameon=False,
+    ncols=3
+)
+```
+
+```{python}
+full.obs["study_labels"] = (full.obs["study"].astype(str)+"_"+full.obs["predictions_scanvi"].astype(str)).astype("category")
+```
+
+```{python}
+sc.pl.umap(full, color = "study_labels")
+```
+
+```{python}
+sc.tl.dendrogram(full, groupby = "study_labels")
+sc.pl.correlation_matrix(full, groupby="study_labels")
+```
+
+```{python}
+for name, adata in [("ref", ref), ("query", query)]:
+    print("\n", name)
+    print("X:", adata.X.shape, type(adata.X))
+    print("layers:", list(adata.layers.keys()))
+
+    for layer in adata.layers:
+        x = adata.layers[layer]
+        print(
+            layer,
+            x.shape,
+            type(x),
+            "min/max:",
+            x.min(),
+            x.max()
+        )
 ```

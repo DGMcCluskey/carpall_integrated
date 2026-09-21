@@ -1,0 +1,38 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{python}
+import scanpy as sc
+import anndata
+
+ref = sc.read_h5ad("2.5_car_no_gd.h5ad")
+query = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
+
+# Make clean mapping copies
+ref_map = anndata.AnnData(
+    X=ref.layers["counts"].copy(),
+    obs=ref.obs.copy(),
+    var=ref.var.copy()
+)
+
+query_map = anndata.AnnData(
+    X=query.layers["counts"].copy(),
+    obs=query.obs.copy(),
+    var=query.var.copy()
+)
+
+# Save
+ref_map.write_h5ad("2.5_car_no_gd_mapping.h5ad")
+query_map.write_h5ad("3_carpallcohort3_mapping.h5ad")
+```
+
+```{python}
+print(ref_map)
+print(query_map)
+
+print(ref_map.layers.keys())
+print(query_map.layers.keys())
+```

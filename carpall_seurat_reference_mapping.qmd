@@ -1,0 +1,54 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{r}
+library(anndataR)
+ref_ad <- read_h5ad(
+    "2.5_car_no_gd.h5ad"
+)
+
+query_ad <- read_h5ad(
+    "3_carpallcohort3_clustered.h5ad"
+)
+```
+
+```{r}
+ref <- ref_ad$as_Seurat(reduction_mapping = list(pca=c(key="PC_", embeddings = "X_pca", loadings = "PCs"), umap = c(key="UMAP_", embeddings = "X_umap")))
+query <- query_ad$as_Seurat(reduction_mapping = list(pca=c(key="PC_", embeddings = "X_pca", loadings = "PCs"), umap = c(key="UMAP_", embeddings = "X_umap")))
+```
+
+```{r}
+ref <- FindVariableFeatures(ref)
+```
+
+```{r}
+ref[["RNA"]]$data <- LayerData(
+    ref,
+    assay = "RNA",
+    layer = "logcounts"
+)
+
+query[["RNA"]]$data <- LayerData(
+    query,
+    assay = "RNA",
+    layer = "logcounts"
+)
+```
+
+```{r}
+Layers(ref[["RNA"]])
+Layers(query[["RNA"]])
+```
+
+```{r}
+anchors <- FindTransferAnchors(
+    reference = ref,
+    query = query,
+    features = VariableFeatures(ref),
+    reference.reduction = "X_pca",
+    reduction = "pcaproject",
+    dims = 1:30
+)
+```
