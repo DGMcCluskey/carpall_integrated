@@ -254,8 +254,10 @@ query = query[
 query.obs["Source"] = query.obs["Timepoint_bin"].map({
     "d14": "PB",
     "d150": "PB",
-    "Product": "Product"
+    "Product": "PROD"
 })
+
+query.obs["labels"] = "Unknown" 
 
 common_genes = ref.var_names.intersection(query.var_names)
 
@@ -270,57 +272,128 @@ full_int = anndata.concat(
     keys=["carpall_one", "carpall_three"],
     join="inner"
 )
-```
 
-```{python}
-print(full_int.obs["study"].value_counts())
-```
-
-```{python}
-sc.pp.highly_variable_genes(
-    full_int,
-    n_top_genes=2000,
-    batch_key="study",
-    subset=False
+full_int.obs["sample_id"] = (
+    full_int.obs["Patient"].astype(str) + "_" +
+    full_int.obs["Timepoint_bin"].astype(str) + "_" +
+    full_int.obs["Source"].astype(str)
 )
 ```
 
 ```{python}
-full_int.write_h5ad("carpall_full_scvi_input.h5ad")
+print(full_int.obs["sample_id"].value_counts())
 ```
 
-# this chunk ended up being run on the cluster
 ```{python}
-scvi.model.SCVI.setup_anndata(
+# ---- keep a full-gene copy for downstream expression work ----
+full_int_allgenes = full_int.copy()
+
+# ---- HVGs, now actually subset for the model input ----
+sc.pp.highly_variable_genes(
     full_int,
+    n_top_genes=2000,
+    batch_key="sample_id",
+    subset=False   # keep as-is here so var["highly_variable"] is annotated
+)
+
+full_int_hvg = full_int[:, full_int.var["highly_variable"]].copy()
+
+full_int_hvg.write_h5ad("carpall_full_scanvi_input.h5ad")
+full_int_allgenes.write_h5ad("carpall_full_allgenes.h5ad")  # for later expression lookups
+```
+
+```{python}
+# ==== this chunk runs on the cluster ====
+
+full_int_hvg = sc.read("carpall_full_scanvi_input.h5ad")
+
+# make sure query cells are labeled "Unknown" for scANVI
+LABEL_KEY = "labels"   # <-- replace with your actual cohort-1 label column
+UNLABELED_CATEGORY = "Unknown"
+
+full_int_hvg.obs[LABEL_KEY] = full_int_hvg.obs[LABEL_KEY].astype(str)
+full_int_hvg.obs.loc[
+    full_int_hvg.obs["study"] == "carpall_three", LABEL_KEY
+] = UNLABELED_CATEGORY
+
+# ---- Step 1: setup + train base SCVI model with Patient as covariate ----
+scvi.model.SCVI.setup_anndata(
+    full_int_hvg,
     layer="counts",
     batch_key="study"
 )
 
-model_int = scvi.model.SCVI(
-    full_int
+model_scvi = scvi.model.SCVI(
+    full_int_hvg,
+    n_latent=30,
+    n_layers=2,
+    gene_likelihood="nb"
 )
 
-model_int.train()
+model_scvi.train(max_epochs=400, early_stopping=True)
 
-full_int.obsm["X_scVI"] = (
-    model_int.get_latent_representation()
+# sanity check convergence before moving on
+model_scvi.history["elbo_train"].plot()
+
+# ---- Step 2: initialize scANVI from the trained SCVI model ----
+model_scanvi = scvi.model.SCANVI.from_scvi_model(
+    model_scvi,
+    unlabeled_category=UNLABELED_CATEGORY,
+    labels_key=LABEL_KEY
 )
 
-sc.pp.neighbors(
-    full_int,
-    use_rep="X_scVI"
-)
+model_scanvi.train(max_epochs=200, early_stopping=True)
+model_scanvi.history["elbo_train"].plot()
 
-sc.tl.umap(full_int)
+# ---- Step 3: get latent rep + predicted labels for query cells ----
+full_int_hvg.obsm["X_scANVI"] = model_scanvi.get_latent_representation()
+full_int_hvg.obs["scanvi_predicted"] = model_scanvi.predict()
 
-full_int.write_h5ad("carpall_full_scvi_corrected.h5ad")
+sc.pp.neighbors(full_int_hvg, use_rep="X_scANVI")
+sc.tl.umap(full_int_hvg)
+
+model_scanvi.save("scanvi_model/", overwrite=True)
+full_int_hvg.write_h5ad("carpall_full_scanvi_corrected.h5ad")
 ```
 
 ```{python}
-full_int = sc.read("carpall_full_scvi_corrected.h5ad")
+# ---- Step 4: bring latent rep + predictions back onto full-gene object ----
+full_int_hvg = sc.read("carpall_full_scanvi_corrected.h5ad")
+full_int_allgenes = sc.read("carpall_full_allgenes.h5ad")
+
+# obs order is preserved from the shared full_int, so this direct assignment is safe
+full_int_allgenes.obsm["X_scANVI"] = full_int_hvg.obsm["X_scANVI"]
+full_int_allgenes.obs["scanvi_predicted"] = full_int_hvg.obs["scanvi_predicted"].values
+full_int_allgenes.obsm["X_umap"] = full_int_hvg.obsm["X_umap"]
+
+full_int_allgenes.write_h5ad("carpall_full_allgenes_with_scanvi.h5ad")
 ```
 
 ```{python}
-sc.pl.umap(full_int, color = ["study", "Source", "Timepoint_bin", "labels"])
+sc.pl.umap(full_int_allgenes, color = ["study", "Source", "Timepoint_bin", "Patient"], ncols=2)
+```
+
+```{python}
+plt.close()
+sc.pl.umap(full_int_allgenes, color = ["scanvi_predicted", "labels", "CD4", "CD8A"], ncols=2, cmap = "magma_r", size = 5)
+```
+
+```{python}
+sc.pl.correlation_matrix(full_int_allgenes, groupby = "labels")
+```
+
+```{python}
+for g in ["CD4", "CD8A", "CD8B"]: print(g, g in full_int_hvg.var_names)
+```
+
+```{python}
+model_scvi = scvi.model.SCANVI.load(
+    "scanvi_model/",   # the directory containing model.pt, not the .pt file itself
+    adata=full_int_hvg     # same AnnData used for setup_anndata (same genes/obs columns/cells)
+)
+```
+
+```{python}
+model_scvi.history["elbo_train"].plot()
+model_scvi.history["elbo_validation"].plot()
 ```

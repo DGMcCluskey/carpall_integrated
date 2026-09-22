@@ -63,6 +63,18 @@ find /Volumes/ritd-ag-project-rd01f6-immic01/2023_04_17_stratos_ghorashian_amrol
 
 ```{bash}
 rsync -avh --progress \
-  UCL_cluster:/home/lab/dmccluskey/carpall_full_scvi_corrected.h5ad \
+  ./carpall_full_scanvi_input.h5ad \
+  UCL_cluster:/home/lab/dmccluskey/
+```
+
+```{bash}
+rsync -avh --progress \
+  UCL_cluster:/home/lab/dmccluskey/carpall_full_scanvi_corrected.h5ad \
+  ./
+```
+
+```{bash}
+rsync -avh --progress \
+  UCL_cluster:/home/lab/dmccluskey/scanvi_model \
   ./
 ```
