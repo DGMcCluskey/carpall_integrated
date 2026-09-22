@@ -60,3 +60,9 @@ find /Volumes/ritd-ag-project-rd01f6-immic01/2023_04_17_stratos_ghorashian_amrol
   -path '*/outs/multi/count/raw_feature_bc_matrix.h5' \
   -print
 ```
+
+```{bash}
+rsync -avh --progress \
+  UCL_cluster:/home/lab/dmccluskey/carpall_full_scvi_corrected.h5ad \
+  ./
+```

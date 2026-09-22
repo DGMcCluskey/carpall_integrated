@@ -298,6 +298,6 @@ plt.close
 ```
 
 ```{python}
-carpall_three.write_h5ad("3_carpallcohort3_clustered.h5ad")
+#carpall_three.write_h5ad("3_carpallcohort3_clustered.h5ad")
 carpall_three = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
 ```

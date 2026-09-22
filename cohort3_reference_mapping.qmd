@@ -1,7 +1,6 @@
 ```{python}
 import scanpy as sc
 import numpy as np
-import anndata
 import pandas as pd
 import os
 import seaborn as sns
@@ -10,9 +9,7 @@ import matplotlib.pyplot as plt
 import scvi
 from scvi.model import SCANVI
 import harmonypy as hm
-
-import scarches as sca
-from scarches.dataset.trvae.data_handling import remove_sparsity
+import anndata
 ```
 
 ```{python}
@@ -184,7 +181,8 @@ sc.pl.umap(
 ```
 
 ```{python}
-full.write_h5ad("carpall_full_scanvi.h5ad")
+#full.write_h5ad("carpall_full_scanvi.h5ad")
+full = sc.read("carpall_full_scanvi.h5ad")
 ```
 
 ```{python}
@@ -202,6 +200,7 @@ sc.pl.umap(
     wspace=0.5,
     color=[
         "study",
+        "source",
         "Timepoint_bin",
         "labels",
         "predictions_scanvi",
@@ -226,20 +225,102 @@ sc.tl.dendrogram(full, groupby = "study_labels")
 sc.pl.correlation_matrix(full, groupby="study_labels")
 ```
 
+# running scvi integration instead of reference mapping as there is clearly a batch effect
 ```{python}
-for name, adata in [("ref", ref), ("query", query)]:
-    print("\n", name)
-    print("X:", adata.X.shape, type(adata.X))
-    print("layers:", list(adata.layers.keys()))
+ref = sc.read("2.5_car_no_gd.h5ad")
 
-    for layer in adata.layers:
-        x = adata.layers[layer]
-        print(
-            layer,
-            x.shape,
-            type(x),
-            "min/max:",
-            x.min(),
-            x.max()
-        )
+query = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
+
+# again selectf or CAR+ cells
+gene1 = np.asarray(
+    query[:, "CAR_CD19_variable_region"].X.toarray()
+).ravel()
+
+gene2 = np.asarray(
+    query[:, "CAR_CD22_variable_region"].X.toarray()
+).ravel()
+
+query = query[
+    (gene1 > 0.5) | (gene2 > 0.5)
+].copy()
+
+#and remove the healthies (their timpeoint is NA)
+query.obs["Timepoint_bin"] = query.obs["Timepoint"]
+
+query = query[
+    query.obs["Timepoint_bin"].isin(["d14", "d150", "Product"])
+].copy()
+
+query.obs["Source"] = query.obs["Timepoint_bin"].map({
+    "d14": "PB",
+    "d150": "PB",
+    "Product": "Product"
+})
+
+common_genes = ref.var_names.intersection(query.var_names)
+
+ref = ref[:, common_genes].copy()
+query = query[:, common_genes].copy()
+```
+
+```{python}
+full_int = anndata.concat(
+    [ref, query],
+    label="study",
+    keys=["carpall_one", "carpall_three"],
+    join="inner"
+)
+```
+
+```{python}
+print(full_int.obs["study"].value_counts())
+```
+
+```{python}
+sc.pp.highly_variable_genes(
+    full_int,
+    n_top_genes=2000,
+    batch_key="study",
+    subset=False
+)
+```
+
+```{python}
+full_int.write_h5ad("carpall_full_scvi_input.h5ad")
+```
+
+# this chunk ended up being run on the cluster
+```{python}
+scvi.model.SCVI.setup_anndata(
+    full_int,
+    layer="counts",
+    batch_key="study"
+)
+
+model_int = scvi.model.SCVI(
+    full_int
+)
+
+model_int.train()
+
+full_int.obsm["X_scVI"] = (
+    model_int.get_latent_representation()
+)
+
+sc.pp.neighbors(
+    full_int,
+    use_rep="X_scVI"
+)
+
+sc.tl.umap(full_int)
+
+full_int.write_h5ad("carpall_full_scvi_corrected.h5ad")
+```
+
+```{python}
+full_int = sc.read("carpall_full_scvi_corrected.h5ad")
+```
+
+```{python}
+sc.pl.umap(full_int, color = ["study", "Source", "Timepoint_bin", "labels"])
 ```
