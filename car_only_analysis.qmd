@@ -596,14 +596,17 @@ for k in [
     "dendrogram_leiden_res_0.6"
 ]:
     cars.uns.pop(k, None)
-#cars.write_h5ad("2_car_only_annotated.h5ad")
-cars = sc.read_h5ad("2_car_only_annotated_v2.h5ad")
+
+to_remove = ["Myeloid contamination"]
+car_subset = cars[~cars.obs["labels"].isin(to_remove)].copy()
+#car_subset.write_h5ad("2_car_only_annotated_v3.h5ad")
+#cars = sc.read_h5ad("2_car_only_annotated_v2.h5ad")
 ```
 
 # also saving an object with no gamma/delta and meyloid contamination
 # these populations are predominantly found in one patient and g/d don;'' biologically make sense in pseudotime analysis
 ```{python}
-to_remove = ["Myeloid contamination", "GD/CD8+ T"]
+to_remove = ["GD/CD8+ T"]
 car_subset = cars[~cars.obs["labels"].isin(to_remove)].copy()
 ```
 

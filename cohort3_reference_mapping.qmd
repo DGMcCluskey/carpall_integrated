@@ -10,224 +10,15 @@ import scvi
 from scvi.model import SCANVI
 import harmonypy as hm
 import anndata
-```
+import kaleido
+import plotly.io as pio
 
-```{python}
-# ============================================================
-# 1. Load reference and select reference HVGs
-# ============================================================
-
-ref = sc.read("2.5_car_no_gd.h5ad")
-
-sc.pl.umap(ref, color="labels")
-
-sc.pp.highly_variable_genes(
-    ref,
-    n_top_genes=2000,
-    batch_key="GEX_id",
-    subset=True
-)
-
-
-# ============================================================
-# 2. Load query and prepare it to match reference genes
-# ============================================================
-
-query = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
-
-gene1 = np.asarray(
-    query[:, "CAR_CD19_variable_region"].X.toarray()
-).ravel()
-
-gene2 = np.asarray(
-    query[:, "CAR_CD22_variable_region"].X.toarray()
-).ravel()
-
-query = query[
-    (gene1 > 0.5) | (gene2 > 0.5)
-].copy()
-
-query.obs["Timepoint_bin"] = query.obs["Timepoint"]
-
-
-
-query = query[
-    query.obs["Timepoint_bin"].isin(["d14", "d150", "Product"])
-].copy()
-
-query = query[:, ref.var_names].copy()
-
-
-# ============================================================
-# 3. Train SCVI on the reference
-# ============================================================
-
-scvi.model.SCVI.setup_anndata(
-    ref,
-    layer="counts"
-)
-
-model = scvi.model.SCVI(ref)
-
-model.train()
-
-
-# ============================================================
-# 4. Train SCANVI using the reference labels
-# ============================================================
-
-scanvi_model = SCANVI.from_scvi_model(
-    model,
-    unlabeled_category="Unknown",
-    labels_key="labels"
-)
-
-scanvi_model.train()
-
-
-# ============================================================
-# 5. Get SCANVI latent representation for reference
-# ============================================================
-
-SCANVI_LATENT_KEY = "X_scANVI"
-SCANVI_PREDICTIONS_KEY = "predictions_scanvi"
-
-ref.obsm[SCANVI_LATENT_KEY] = (
-    scanvi_model.get_latent_representation()
-)
-
-
-# ============================================================
-# 6. Map query onto the reference SCANVI model
-# ============================================================
-
-scvi.model.SCANVI.prepare_query_anndata(
-    query,
-    scanvi_model
-)
-
-scanvi_query = scvi.model.SCANVI.load_query_data(
-    query,
-    scanvi_model
-)
-
-scanvi_query.train(
-    max_epochs=200
-)
-
-
-# ============================================================
-# 7. Get query SCANVI latent representation + predictions
-# ============================================================
-
-query.obsm[SCANVI_LATENT_KEY] = (
-    scanvi_query.get_latent_representation()
-)
-
-query.obs[SCANVI_PREDICTIONS_KEY] = (
-    scanvi_query.predict()
-)
-
-prediction_probs = scanvi_query.predict(query, soft=True)
-
-query.obs["scanvi_score"] = prediction_probs.max(axis=1)
-
-ref.obs["scanvi_score"] = np.nan
-
-# ============================================================
-# 8. Check query predictions
-# ============================================================
-
-print(query.obs[SCANVI_PREDICTIONS_KEY].value_counts())
-
-
-# ============================================================
-# 9. Combine reference + query for a new joint embedding
-# ============================================================
-
-ref.obs[SCANVI_PREDICTIONS_KEY] = ref.obs["labels"]
-
-full = anndata.concat(
-    [ref, query],
-    label="source",
-    join="inner"
-)
-
-sc.pp.neighbors(
-    full,
-    use_rep=SCANVI_LATENT_KEY
-)
-
-sc.tl.umap(full)
-
-
-# ============================================================
-# 10. Plot the new joint embedding
-# ============================================================
-
-sc.pl.umap(
-    full,
-    color=[
-        "source",
-        "Timepoint_bin",
-        "labels",
-        "predictions_scanvi",
-        "CD4", "CD8A"
-    ],
-    cmap="magma_r",
-    frameon=False,
-    ncols=2
-)
-```
-
-```{python}
-#full.write_h5ad("carpall_full_scanvi.h5ad")
-full = sc.read("carpall_full_scanvi.h5ad")
-```
-
-```{python}
-sc.pl.correlation_matrix(full, groupby="predictions_scanvi")
-```
-
-```{python}
-sc.pl.umap(full, color = ["CD4", "CD8A", "TIGIT"], cmap="magma_r")
-```
-
-```{python}
-plt.close()
-sc.pl.umap(
-    full,
-    wspace=0.5,
-    color=[
-        "study",
-        "source",
-        "Timepoint_bin",
-        "labels",
-        "predictions_scanvi",
-        "Patient",
-        "scanvi_score"
-    ],
-    frameon=False,
-    ncols=3
-)
-```
-
-```{python}
-full.obs["study_labels"] = (full.obs["study"].astype(str)+"_"+full.obs["predictions_scanvi"].astype(str)).astype("category")
-```
-
-```{python}
-sc.pl.umap(full, color = "study_labels")
-```
-
-```{python}
-sc.tl.dendrogram(full, groupby = "study_labels")
-sc.pl.correlation_matrix(full, groupby="study_labels")
+pio.get_chrome()
 ```
 
 # running scvi integration instead of reference mapping as there is clearly a batch effect
 ```{python}
-ref = sc.read("2.5_car_no_gd.h5ad")
+ref = sc.read("2_car_only_annotated.h5ad")
 
 query = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
 
@@ -263,6 +54,11 @@ common_genes = ref.var_names.intersection(query.var_names)
 
 ref = ref[:, common_genes].copy()
 query = query[:, common_genes].copy()
+```
+
+```{python}
+plt.close("all")
+sc.pl.umap(ref, color="labels")
 ```
 
 ```{python}
@@ -370,12 +166,28 @@ full_int_allgenes.write_h5ad("carpall_full_allgenes_with_scanvi.h5ad")
 ```
 
 ```{python}
-sc.pl.umap(full_int_allgenes, color = ["study", "Source", "Timepoint_bin", "Patient"], ncols=2)
+full_int_allgenes = sc.read("carpall_full_allgenes_with_scanvi.h5ad")
+```
+
+```{python}
+fig=sc.pl.umap(full_int_allgenes, color = ["study", "Timepoint_bin", "Patient", "scanvi_predicted"], ncols=2, return_fig = True, wspace=0.5)
+fig.set_size_inches(12, 6)
+print(fig.get_size_inches())
+fig.savefig("figures_cohort3/scvi_umap_metadata.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+fig=sc.pl.umap(full_int_allgenes, color = ["scanvi_predicted", "CD4", "CD8A"], ncols=1, return_fig = True, wspace=0.5, cmap="magma_r")
+fig.set_size_inches(5, 10)
+print(fig.get_size_inches())
+fig.savefig("figures_cohort3/scvi_CD4_CD8.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
 ```{python}
 plt.close()
-sc.pl.umap(full_int_allgenes, color = ["scanvi_predicted", "labels", "CD4", "CD8A"], ncols=2, cmap = "magma_r", size = 5)
+sc.pl.umap(full_int_allgenes, color = ["TIGIT", "HAVCR2", "LAG3", "HLA-DRB1"], ncols=2, cmap = "magma_r", size = 5)
 ```
 
 ```{python}
@@ -383,17 +195,143 @@ sc.pl.correlation_matrix(full_int_allgenes, groupby = "labels")
 ```
 
 ```{python}
-for g in ["CD4", "CD8A", "CD8B"]: print(g, g in full_int_hvg.var_names)
+sc.tl.embedding_density(full_int_allgenes, basis="umap", groupby="Timepoint_bin")
+sc.pl.embedding_density(full_int_allgenes, basis="umap", key="umap_density_Timepoint_bin", ncols=3)
 ```
 
 ```{python}
-model_scvi = scvi.model.SCANVI.load(
-    "scanvi_model/",   # the directory containing model.pt, not the .pt file itself
-    adata=full_int_hvg     # same AnnData used for setup_anndata (same genes/obs columns/cells)
+full_int_allgenes.obs["study_time"] = (
+    full_int_allgenes.obs["Timepoint_bin"].astype(str)
+)
+
+product = full_int_allgenes.obs["Timepoint_bin"] == "Product"
+
+full_int_allgenes.obs.loc[
+    product & (full_int_allgenes.obs["study"] == "carpall_one"),
+    "study_time"
+] = "Product_cohort1"
+
+full_int_allgenes.obs.loc[
+    product & (full_int_allgenes.obs["study"] == "carpall_three"),
+    "study_time"
+] = "Product_cohort3"
+```
+
+```{python}
+full_int_allgenes.obs["patient_time"] = (
+    full_int_allgenes.obs["Patient"].astype(str)
+    + "_"
+    + full_int_allgenes.obs["Timepoint_bin"].astype(str)
 )
 ```
 
 ```{python}
-model_scvi.history["elbo_train"].plot()
-model_scvi.history["elbo_validation"].plot()
+full_int_allgenes.obs["study_time"] = pd.Categorical(
+    full_int_allgenes.obs["study_time"]
+)
+sc.pl.correlation_matrix(full_int_allgenes, groupby = "study_time")
+```
+
+```{python}
+proportions = (
+    full_int_allgenes.obs
+    .groupby("study_time")["scanvi_predicted"]
+    .value_counts(normalize=True)
+    .unstack(fill_value=0)
+)
+proportions = proportions * 100
+
+print(proportions)
+```
+
+```{python}
+import plotly.graph_objects as go
+import plotly.express as px
+```
+
+```{python}
+proportions = (proportions.reset_index().melt(id_vars="study_time", var_name = "scvi_predicted", value_name = "proportion"))
+timepoint_order = ["Product_cohort1", "Product_cohort3", "d14", "Early", "d150", "Mid", "Late"]
+proportions["study_time"] = pd.Categorical(
+    proportions["study_time"],
+    categories=timepoint_order,
+    ordered=True
+)
+```
+
+```{python}
+fig = px.bar(proportions, x = "study_time", y = "proportion", color="scvi_predicted", color_discrete_sequence=px.colors.qualitative.Light24_r,
+template="simple_white",
+category_orders={
+        "study_time": ["Product_cohort1", "Product_cohort3", "Early", "d14", "Mid", "d150", "Late"]
+    })
+fig.show()
+fig.write_image(
+    "./figures_cohort3/scanvi_predicted_proportions.png",
+    scale=3
+)
+```
+
+```{python}
+proportions = (
+    full_int_allgenes.obs
+    .groupby("patient_time")["scanvi_predicted"]
+    .value_counts(normalize=True)
+    .unstack(fill_value=0)
+)
+proportions = proportions * 100
+
+print(proportions)
+```
+
+```{python}
+proportions = (proportions.reset_index().melt(id_vars="patient_time", var_name = "scvi_predicted", value_name = "proportion"))
+```
+
+```{python}
+fig = px.bar(proportions, x = "patient_time", y = "proportion", color="scvi_predicted", color_discrete_sequence=px.colors.qualitative.Light24_r,
+template="simple_white")
+fig.show()
+fig.write_image(
+    "./figures_cohort3/scanvi_predicted_proportions_patient_level.png",
+    scale=3
+)
+```
+
+```{python}
+dnt = full_int_allgenes[
+    full_int_allgenes.obs["scanvi_predicted"].isin(["DN T"])
+].copy()
+```
+
+```{python}
+sc.pl.dotplot(dnt, var_names=["CD4", "CD8A", "TIGIT", "HAVCR2", "LAG3", "HLA-DRB1", "FXYD2", "HMOX1", "GPR183"],groupby="patient_time")
+```
+
+```{python}
+plt.close()
+sc.pl.correlation_matrix(dnt, groupby="study_time")
+```
+
+```{python}
+sc.tl.rank_genes_groups(
+    dnt, groupby="Timepoint_bin", method="wilcoxon", key_added="dea_timepoint"
+)
+
+sc.tl.filter_rank_genes_groups(
+    dnt,
+    min_in_group_fraction=0.10,
+    max_out_group_fraction=0.10,
+    key="dea_timepoint",
+    key_added="dea_timepoint_filtered",
+)
+sc.tl.dendrogram(
+    dnt,
+    groupby="Timepoint_bin",
+)
+
+sc.pl.rank_genes_groups_dotplot(
+    dnt, groupby="Timepoint_bin", 
+    standard_scale="var", n_genes=10, key="dea_timepoint_filtered"
+)
 ```
