@@ -12,13 +12,11 @@ import harmonypy as hm
 import anndata
 import kaleido
 import plotly.io as pio
-
-pio.get_chrome()
 ```
 
 # running scvi integration instead of reference mapping as there is clearly a batch effect
 ```{python}
-ref = sc.read("2_car_only_annotated.h5ad")
+ref = sc.read("2_car_only_annotated_v3.h5ad")
 
 query = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
 
@@ -191,6 +189,7 @@ sc.pl.umap(full_int_allgenes, color = ["TIGIT", "HAVCR2", "LAG3", "HLA-DRB1"], n
 ```
 
 ```{python}
+plt.close("all")
 sc.pl.correlation_matrix(full_int_allgenes, groupby = "labels")
 ```
 
@@ -223,13 +222,19 @@ full_int_allgenes.obs["patient_time"] = (
     + "_"
     + full_int_allgenes.obs["Timepoint_bin"].astype(str)
 )
+
+full_int_allgenes.obs["labels_time"] = (
+    full_int_allgenes.obs["labels"].astype(str)
+    + "_"
+    + full_int_allgenes.obs["Timepoint_bin"].astype(str)
+)
 ```
 
 ```{python}
-full_int_allgenes.obs["study_time"] = pd.Categorical(
-    full_int_allgenes.obs["study_time"]
+full_int_allgenes.obs["labels_time"] = pd.Categorical(
+    full_int_allgenes.obs["labels_time"]
 )
-sc.pl.correlation_matrix(full_int_allgenes, groupby = "study_time")
+sc.pl.correlation_matrix(full_int_allgenes, groupby = "labels_time")
 ```
 
 ```{python}
@@ -290,7 +295,7 @@ proportions = (proportions.reset_index().melt(id_vars="patient_time", var_name =
 
 ```{python}
 fig = px.bar(proportions, x = "patient_time", y = "proportion", color="scvi_predicted", color_discrete_sequence=px.colors.qualitative.Light24_r,
-template="simple_white")
+template="simple_white", width=1000, height = 700)
 fig.show()
 fig.write_image(
     "./figures_cohort3/scanvi_predicted_proportions_patient_level.png",
@@ -300,15 +305,24 @@ fig.write_image(
 
 ```{python}
 dnt = full_int_allgenes[
-    full_int_allgenes.obs["scanvi_predicted"].isin(["DN T"])
+    full_int_allgenes.obs["scanvi_predicted"].isin(["DN T"]) &
+    (full_int_allgenes.obs["Timepoint_bin"] !="Product")
 ].copy()
 ```
 
 ```{python}
-sc.pl.dotplot(dnt, var_names=["CD4", "CD8A", "TIGIT", "HAVCR2", "LAG3", "HLA-DRB1", "FXYD2", "HMOX1", "GPR183"],groupby="patient_time")
+plt.close()
+dp = sc.pl.dotplot(dnt, var_names=["CD4", "CD8A", "TIGIT", "HAVCR2", "LAG3", "HLA-DRB1", "FXYD2", "HMOX1", "GPR183", "GZMB", "GZMH"],groupby="study_time", cmap = "magma_r", return_fig=True, dendrogram=True)
+dp.make_figure()
+fig=dp.fig
+fig.set_size_inches(5, 4)
+print(fig.get_size_inches())
+fig.savefig("figures_cohort3/DN_dotplot.png", dpi=300, bbox_inches="tight")
+plt.close
 ```
 
 ```{python}
+sc.tl.dendrogram(dnt, groupby="study_time")
 plt.close()
 sc.pl.correlation_matrix(dnt, groupby="study_time")
 ```
