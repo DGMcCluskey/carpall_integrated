@@ -1,0 +1,78 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{python}
+import decoupler as dc
+import scanpy as sc
+from decoupler.pp import pseudobulk
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from seaborn import objects as so
+```
+
+```{python}
+cars = sc.read("4_car_no_gd_psuedotime.h5ad")
+```
+
+```{python}
+outcome_info = {"P01":"persistence","P02":"persistence", "P03":"persistence", "P05":"persistence", "P06":"persistence", "P08":"no_persistence", "P09":"no_persistence",
+"P10":"no_persistence", "P11":"no_persistence", "P13":"no_persistence"
+}
+
+cars.obs["outcome"] = (
+    cars.obs["Patient"]
+    .map(outcome_info)
+    .astype("category")
+)
+```
+
+```{python}
+sc.pl.umap(cars, color=["labels", "outcome", "lineage_group"])
+```
+
+```{python}
+sc.pl.umap(cars, color=["lineage_group"], palette=["mediumvioletred", "indianred", "royalblue", "grey"])
+```
+
+```{python}
+cars.obs["Patient_Timepoint"] = (cars.obs["Patient"].astype(str) + "_" + cars.obs["Timepoint_bin"].astype(str))
+```
+
+```{python}
+counts = pd.crosstab(
+    cars.obs["lineage_group"],
+    cars.obs["Timepoint_bin"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "lineage_group", var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="lineage_group", y="percent", color="celltype")
+    .scale(color="tab20")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(8,4))
+)
+
+p.save("car_only/lineage_group_time_proportions.png", dpi=300, bbox_inches="tight")
+```
+
+
+```{python}
+cars_bulk = dc.pp.pseudobulk(cars, groups_col="")
+```

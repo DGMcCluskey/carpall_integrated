@@ -62,6 +62,8 @@ weights = weights.loc[cars.obs_names]
 ```{python}
 cars.obs["Lineage1_weight"] = weights["Lineage1"]
 cars.obs["Lineage3_weight"] = weights["Lineage3"]
+cars.obs["pt_L1"] = pt["Lineage1"]
+cars.obs["pt_L3"] = pt["Lineage3"]
 ```
 
 ```{python}
@@ -179,8 +181,12 @@ cars.obs["lineage_time"] = (
 ```
 
 ```{python}
+cars.write_h5ad("4_car_no_gd_psuedotime.h5ad")
+```
+
+```{python}
 plt.close()
-sc.pl.dotplot(cars, var_names = ["FOXO1", "RASA2", "MED12", "LTBR", "JUN"], groupby = "Timepoint_bin")
+sc.pl.dotplot(cars, var_names = ["FOXO1", "RASA2", "MED12", "LTBR", "JUN", "IL4", "IL5", "IL13"], groupby = "Timepoint_bin")
 plt.close()
 ```
 
@@ -245,7 +251,7 @@ plt.close()
 sc.pl.dotplot(
     cars,
     var_names=["ZBTB4", "ZBED1", "MYC", "PTF1A", "SIX4", "GBX2", "MSX1", "RFX1", "HCFC1", "HLF",
-    "NFATC1", "SP7", "SMARCA5", "NCOA1", "ZNF148", "DLX4", "DLX2", "BHLHA15", "NEUROD1", "SOX4"],
+    "NFATC1", "SP7", "SMARCA5", "NCOA1", "ZNF148", "DLX4", "DLX2", "BHLHA15", "NEUROD1", "SOX4", "IL4", "IL5", "IL13"],
     groupby="lineage_group",
     standard_scale="var"
 )
@@ -533,7 +539,7 @@ sc.pl.matrixplot(
 plt.close()
 sc.pl.dotplot(
     adata=cars,
-    var_names=["GATA3", "STAT6", "IRF4", "STAT5A", "IL4R", "MRPS26", "RORC", "RORA", "KLRB1", "STAT3","TBX21", "IFNG", "IL10", "ITGAE", "CTLA4", "TIGIT", "CD28", "IKZF2", "IL17A", "IL17F", "IL23A", "IL22", "IL4", "IL5", "IL13", "TGFB1", "IL9", "IL21", "STAT1", "STAT4", "TRAF2", "TRAF3", "TRAF6", "CD40", "TNFRSF11A", "LTBR", "SMAD3", "E2F8", "TGFBR1", "TGFBR2", "TGFBR3", "PDCD1"],
+    var_names=["GATA3", "STAT6", "IRF4", "STAT5A", "IL4R", "MRPS26", "RORC", "RORA", "KLRB1", "STAT3","TBX21", "IFNG", "IL10", "ITGAE", "CTLA4", "TIGIT", "CD28", "IKZF2", "IL17A", "IL17F", "IL23A", "IL22", "IL4", "IL5", "IL13", "TGFB1", "IL9", "IL21", "STAT1", "STAT4", "TRAF2", "TRAF3", "TRAF6", "CD40", "TNFRSF11A", "LTBR", "SMAD3", "E2F8", "TGFBR1", "TGFBR2", "TGFBR3", "PDCD1", "MYD88", "TLR5", "TLR10"],
     groupby="lineage_group",
     dendrogram=True,
     standard_scale="var",
@@ -677,4 +683,13 @@ lin1_tfs_down.to_csv("tf_enrichment/TFs_inactive_lineage1.csv")
 
 lin3_tfs_up.to_csv("tf_enrichment/TFs_active_lineage3.csv")
 lin3_tfs_down.to_csv("tf_enrichment/TFs_inactive_lineage3.csv")
+```
+
+
+```{python}
+sc.pl.scatter(cars, "pt_L3", "GATA3")
+```
+
+```{python}
+sc.pl.dotplot(cars, var_names=["GATA3", "STAT6", "MAML1", "EP300", "RAD50", "NOTCH1", "TBX21", "IRF4"], groupby="lineage_group", standard_scale="var")
 ```

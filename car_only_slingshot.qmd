@@ -11,11 +11,20 @@ library(dplyr)
 library(igraph)
 library(ggplot2)
 library(viridis)
+library(tidyr)
 ```
 
 ```{r}
 adata <- read_h5ad("2.5_car_no_gd.h5ad", as = "SingleCellExperiment")
 adata
+```
+
+```{r}
+outcome_info <- c("P01"="persistence","P02"="persistence", "P03"="persistence", "P05"="persistence", "P06"="persistence", "P08"="no_persistence", "P09"="no_persistence",
+"P10"="no_persistence", "P11"="no_persistence", "P13"="no_persistence")
+
+adata$outcome <- outcome_info[as.character(adata$Patient)]
+
 ```
 
 ```{r}
@@ -256,38 +265,104 @@ write.csv(
 )
 ```
 
+```{r}
+sce <- scuttle::logNormCounts(sce)
+```
+
+```{r}
+cell_df$cell <- rownames(cell_df)
+
+meta <- data.frame(
+  cell      = colnames(adata),
+  Patient   = adata$Patient,
+  Timepoint = adata$Timepoint_bin,
+  outcome   = adata$outcome
+)
+
+cell_df <- cell_df %>% left_join(meta, by = "cell")
+rownames(cell_df) <- cell_df$cell
+```
+
 # plot gene expression along lineages
 ```{r}
-genes <- c("GATA3", "STAT6", "STAT5A", "IL4R", "TBX21", "NFKB2", "TGFB1", "IL10", "MYD88", "TGFBR3", "PPARA", "PDCD1", "IFNG", "ISG15", "MX1", "TNFSF10")
+genes <- c("GATA3", "STAT6", "STAT5A", "IL4R", "TBX21", "NFKB2", "TGFB1", "IL10", "MYD88", "TGFBR3", "ISG15", "MX1", "MAML1", "RAD50", "EP300", "NOTCH1", "NOTCH2", "RELA", "NFKB1",
+"CREM", "ETV3", "HDAC1", "KLF9", "PURA", "REST", "TLR2", "TLR3", "TLR4", "TLR5", "TLR7", "TLR9", "TLR10")
 
-expr_mat <- assay(sce, "counts")[genes, ]
+th2_genes <- c("GATA3", "STAT6", "MAML1", "EP300", "RAD50", "NOTCH1", "TBX21", "IRF4", "RORC")
+qc_genes <- c("MKI67", "TOP2A", "ACTB", "B2M", "MALAT1", "CCR7", "GZMA", "NFKB1", "IL7R")
 
-expr_long <- as.data.frame(t(expr_mat))
+expr_mat <- logcounts(sce)[th2_genes, ]
+
+expr_long <- as.data.frame(as.matrix(t(expr_mat)))
 expr_long$cell <- rownames(expr_long)
 
-expr_long <- tidyr::pivot_longer(
-  expr_long,
-  cols = all_of(genes),
-  names_to = "gene",
-  values_to = "expression"
-)
+expr_long <- expr_long %>%
+  tidyr::pivot_longer(all_of(th2_genes), names_to = "gene", values_to = "expression") %>%
+  left_join(cell_df[, c("cell", "pt_L1", "pt_L3", "Patient", "Timepoint", "outcome")],
+            by = "cell")
 
-cell_meta <- cell_df
-cell_meta$cell <- rownames(cell_df)
-
-expr_long <- merge(
-  expr_long,
-  cell_meta[,c("cell","pt_L1","pt_L3")],
-  by="cell"
-)
-
-plot_input <- tidyr::pivot_longer(expr_long, names_to = "lineage", values_to = "pseudotime", cols = 4:5)
+plot_input <- expr_long %>%
+  tidyr::pivot_longer(c(pt_L1, pt_L3), names_to = "lineage", values_to = "pseudotime") %>%
+  filter(!is.na(pseudotime)) %>%
+  mutate(lineage = recode(lineage, pt_L1 = "L1 (persisting)", pt_L3 = "L3 (non-persisting)"))
 ```
+
 ```{r}
-ggplot(plot_input,
-       aes(pseudotime, expression, color = lineage, linetype = lineage)) +
-  geom_smooth(se = F) +
-  facet_wrap(~gene, scales="free_y") +
-  theme_classic()+
-  scale_colour_manual(values = c("orange", "mediumvioletred"))
+threshold <- 0.8
+
+early_clusters <- c(
+  "Product Mixed T",
+  "Product CD8+ T",
+  "Naive/CM T",
+  "Cycling T"
+)
+
+cw <- slingCurveWeights(sce)
+cell_df$Lineage1_weight <- cw[, "Lineage1"]
+cell_df$Lineage3_weight <- cw[, "Lineage3"]
+
+cell_df$Branch_member <- cell_df$Lineage1_weight > threshold &
+                         cell_df$Lineage3_weight > threshold
+
+# same as your Python: Branch cells in the early clusters get reassigned to "Other"
+cell_df$Branch_member <- cell_df$Branch_member &
+                         !(cell_df$labels %in% early_clusters)
+
+branch_cells <- cell_df %>%
+  filter(Branch_member) %>%
+  mutate(pt_branch = (pt_L1 + pt_L3) / 2)
+
+summary(abs(branch_cells$pt_L1 - branch_cells$pt_L3))
+
+branch_band <- data.frame(
+  xmin = min(branch_cells$pt_branch),
+  xmax = max(branch_cells$pt_branch)
+)
+branch_band
 ```
+
+```{r}
+plot_input$group <- paste0(plot_input$lineage, "_", plot_input$outcome)
+```
+
+```{r}
+p <- ggplot(plot_input, aes(pseudotime, expression, color = lineage, linetype = lineage)) +
+  geom_rect(
+    data = branch_band,
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE,
+    fill = "grey70", alpha = 0.3
+  ) +
+  geom_smooth(method = "gam", se =F)+
+  facet_wrap(~gene, scales = "free_y") +
+  scale_colour_manual(values = c("orange","mediumvioletred")) +
+  #scale_colour_brewer(palette="Paired")+
+  theme_classic()+
+  theme(strip.text = element_text(size=14, face="bold"))
+p
+ggsave(plot=p, filename = "./car_only/th2_genes_over_pseudotime.png", dpi=300, height=6,width=10)
+```
+
+
+
+

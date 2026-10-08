@@ -224,7 +224,7 @@ full_int_allgenes.obs["patient_time"] = (
 )
 
 full_int_allgenes.obs["labels_time"] = (
-    full_int_allgenes.obs["labels"].astype(str)
+    full_int_allgenes.obs["scanvi_predicted"].astype(str)
     + "_"
     + full_int_allgenes.obs["Timepoint_bin"].astype(str)
 )
@@ -234,7 +234,32 @@ full_int_allgenes.obs["labels_time"] = (
 full_int_allgenes.obs["labels_time"] = pd.Categorical(
     full_int_allgenes.obs["labels_time"]
 )
-sc.pl.correlation_matrix(full_int_allgenes, groupby = "labels_time")
+```
+
+```{python}
+plt.close("all")
+
+sc.pl.correlation_matrix(
+    full_int_allgenes,
+    cmap = "RdBu_r",
+    groupby="labels_time",
+    dendrogram=True,
+    figsize=(15, 10),   # a real argument here; used when scanpy creates the figure
+    show=False,
+)
+
+fig = plt.gcf()
+fig.set_size_inches(15, 10)   # belt and braces, in case figsize is overridden
+
+for ax in fig.axes:           # dendrogram, matrix and colorbar axes
+    ax.tick_params(axis="both", labelsize=8)
+
+fig.savefig(
+    "./figures_cohort3/labels_time_correlation_scvi.png",
+    dpi=300,
+    bbox_inches="tight",
+)
+plt.show()
 ```
 
 ```{python}
@@ -348,4 +373,33 @@ sc.pl.rank_genes_groups_dotplot(
     dnt, groupby="Timepoint_bin", 
     standard_scale="var", n_genes=10, key="dea_timepoint_filtered"
 )
+```
+
+# correlate early/mid and cohort 3 DN T cells to see if cohort 3 are similar to patients who went on to persist or not
+
+```{python}
+sc.tl.dendrogram(dnt, groupby="patient_time")
+plt.close("all")
+
+sc.pl.correlation_matrix(
+    dnt,
+    cmap = "RdBu_r",
+    groupby="patient_time",
+    dendrogram=True,
+    figsize=(15, 10),   # a real argument here; used when scanpy creates the figure
+    show=False,
+)
+
+fig = plt.gcf()
+fig.set_size_inches(15, 10)   # belt and braces, in case figsize is overridden
+
+for ax in fig.axes:           # dendrogram, matrix and colorbar axes
+    ax.tick_params(axis="both", labelsize=8)
+
+fig.savefig(
+    "./figures_cohort3/dnt_timepoint_patient_correlation.png",
+    dpi=300,
+    bbox_inches="tight",
+)
+plt.show()
 ```

@@ -1,0 +1,60 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{r}
+library(tradeSeq)
+library(RColorBrewer)
+library(SingleCellExperiment)
+library(slingshot)
+```
+
+```{r}
+adata <- read_h5ad("2.5_car_no_gd.h5ad", as = "SingleCellExperiment")
+sce <- readRDS("car_only/car_slingshot_object.rds")
+counts_full <- assay(sce, "counts")
+pt <- slingPseudotime(sce, na = FALSE)
+cw <- slingCurveWeights(sce)
+```
+
+```{r}
+lin <- c(1, 3)
+pt_sub <- pt[, lin]
+cw_sub <- cw[, lin]
+
+keep_cells <- rowSums(cw_sub) > 0
+counts_sub <- counts_full[, keep_cells]
+pt_sub <- pt_sub[keep_cells, ]
+cw_sub <- cw_sub[keep_cells, ]
+```
+
+```{r}
+# keep genes detected in at least ~1% of cells
+keep <- rowSums(counts_full > 0) >= 0.05 * ncol(counts_full)
+sum(keep)
+
+# always include your genes of interest
+th2_genes <- c("GATA3", "STAT6", "STAT5A", "MAML1", "EP300", "RAD50", "IL4R", "NOTCH1", "NOTCH2", "TBX21", "IRF4", "BCL11B")
+genes_use <- union(rownames(counts_full)[keep], th2_genes)
+```
+
+```{r}
+set.seed(5)
+library(BiocParallel)
+
+cond <- factor(cell_df[colnames(counts_sub), "outcome"])
+
+sce_fit <- fitGAM(
+  counts      = counts_full,
+  pseudotime  = pt,
+  cellWeights = cw,
+  #conditions = cond,
+  genes       = th2_genes,   # or omit `genes` entirely to fit everything
+  nknots      = 6,
+  parallel    = TRUE,
+  BPPARAM     = BiocParallel::MulticoreParam(4)
+)
+saveRDS(sce_fit, "car_only/tradeseq_fit.rds")
+```
