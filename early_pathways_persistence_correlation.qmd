@@ -1,0 +1,470 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{python}
+import decoupler as dc
+import scanpy as sc
+from decoupler.pp import pseudobulk
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from seaborn import objects as so
+```
+
+```{python}
+cars = sc.read("2_car_only_annotated_v3.h5ad")
+```
+
+```{python}
+outcome_info = {"P01":"persistence","P02":"persistence", "P03":"persistence", "P05":"persistence", "P06":"persistence", "P08":"no_persistence", "P09":"no_persistence",
+"P10":"no_persistence", "P11":"no_persistence", "P13":"no_persistence"
+}
+
+cars.obs["outcome"] = (
+    cars.obs["Patient"]
+    .map(outcome_info)
+    .astype("category")
+)
+```
+
+```{python}
+cars.obs["label_timepoint"] = (cars.obs["labels"].astype(str) + "_" + cars.obs["Timepoint_bin"].astype(str))
+```
+
+```{python}
+cars.obs["persistence_group"] = "Other"
+
+cars.obs.loc[
+    (cars.obs["labels"] == "DN T") &
+    (cars.obs["Timepoint_bin"].isin(["Late"])),
+    "persistence_group"
+] = "Persistent"
+
+cars.obs["persistence_group"].value_counts()
+```
+
+```{python}
+pb = dc.pp.pseudobulk(
+    cars, sample_col="Patient",
+    groups_col ="persistence_group",
+    layer="counts"
+)
+pb
+```
+
+```{python}
+dc.pl.filter_samples(
+    adata=pb,
+    groupby=["Patient", "persistence_group"],
+    min_cells=5,
+    min_counts=1000,
+    figsize=(5, 8),
+)
+```
+
+```{python}
+dc.pp.filter_samples(pb, min_cells=5,min_counts=1000)
+pb
+```
+
+```{python}
+dc.pl.filter_by_expr(
+    adata=pb,
+    group="persistence_group",
+    min_count=10,
+    min_total_count=15,
+    large_n=10,
+    min_prop=0.7,
+)
+dc.pl.filter_by_prop(
+    adata=pb,
+    min_prop=0.1,
+    min_smpls=2,
+)
+```
+
+```{python}
+dc.pp.filter_by_expr(
+    adata=pb,
+    group="persistence_group",
+    min_count=10,
+    min_total_count=15,
+    large_n=10,
+    min_prop=0.7,
+)
+dc.pp.filter_by_prop(
+    adata=pb,
+    min_prop=0.1,
+    min_smpls=0.2)
+```
+
+```{python}
+import pertpy as pt
+import pydeseq2
+from pydeseq2.dds import DeseqDataSet, DefaultInference
+from pydeseq2.ds import DeseqStats
+
+```
+
+```{python}
+pds2 = pt.tl.PyDESeq2(adata=pb, design="~ persistence_group")
+pds2.fit()
+```
+
+```{python}
+res_df = pds2.compare_groups(pb,
+    column="persistence_group",
+    baseline="Other",
+    groups_to_compare=["Persistent"])
+```
+
+```{python}
+pds2.plot_volcano(res_df, log2fc_threshold=1.5)
+```
+
+```{python}
+pds2.plot_paired(
+    pb,
+    results_df=res_df,
+    n_top_vars=10,
+    groupby="persistence_group",
+    pairedby="Patient"
+)
+```
+
+```{python}
+sig_genes = res_df[res_df["adj_p_value"] < 0.05]
+```
+
+```{python}
+pds2.plot_multicomparison_fc(res_df, n_top_vars=15, figsize=(12, 1.5))
+```
+
+```{python}
+sc.pl.umap(cars, color=["lineage_group"], palette=["mediumvioletred", "indianred", "royalblue", "grey"])
+```
+
+```{python}
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import decoupler as dc
+import scipy.sparse as sp
+from itertools import permutations
+from scipy.stats import ttest_ind, rankdata, t as tdist
+from statsmodels.stats.multitest import multipletests
+
+# ---------------- settings ----------------
+ADATA_PATH  = "2_car_only_annotated_v3.h5ad"
+PATIENT_COL = "Patient"
+TIME_COL    = "Timepoint_bin"
+SUBSET_COL  = "labels"
+SUBSET      = "DN T"
+EARLY_LABEL = "Early"
+LATE_LABEL  = "Late"
+N_SIG       = 100
+LFC_MIN     = 0.5
+MIN_FRAC    = 0.05       # keep genes detected in >=5% of early cells
+N_PERM      = 10000      # only used if the number of patients is > 8
+MIN_SET, MAX_SET = 15, 300
+SEED        = 0
+rng = np.random.default_rng(SEED)
+
+GMT_FILES = {
+    "Hallmark":    ("h.all.v2026.1.Hs.symbols.gmt", None),
+    "GO_BP":       ("c5.go.v2026.1.Hs.symbols.gmt", None),
+    "KEGG":        ("c2.cp.kegg_legacy.v2026.1.Hs.symbols.gmt", None),
+    "Reactome":    ("ReactomePathways.gmt", "R-HSA"),
+    "ImmuneSigDB": ("c7.immunesigdb.v2026.1.Hs.symbols.gmt", None),
+}
+
+def to_dense(X):
+    return X.toarray() if hasattr(X, "toarray") else np.asarray(X)
+
+# ---------------- load and define contrasts ----------------
+adata = sc.read_h5ad(ADATA_PATH)
+obs = adata.obs
+is_late_dn = ((obs[TIME_COL] == LATE_LABEL) & (obs[SUBSET_COL] == SUBSET)).values
+is_early   = (obs[TIME_COL] == EARLY_LABEL).values
+adata.obs["contrast"] = np.where(is_late_dn, "Late_DNT", "other")
+
+# ---------------- signature pseudobulk (summed counts, log-CPM) ----------------
+pb = dc.pp.pseudobulk(adata, sample_col=PATIENT_COL, groups_col="contrast",
+                      layer="counts", mode="sum")
+dc.pp.filter_samples(pb, min_cells=5, min_counts=1000)   # in place
+pb_df = pb.to_df()
+lib = pb_df.sum(axis=1)
+pb_df = np.log1p(pb_df.div(lib, axis=0) * 1e6)
+pb_obs = pb.obs.copy()
+
+# ---------------- labeled patients ----------------
+early_pats = set(obs.loc[is_early, PATIENT_COL].unique())
+late_pats  = set(obs.loc[is_late_dn, PATIENT_COL].unique())
+labeled = sorted(early_pats & late_pats)
+n = len(labeled)
+print(f"{n} labeled patients: {labeled}")
+
+late_dn = adata[is_late_dn].copy()
+
+# ---------------- helpers ----------------
+def derive_signature(train_patients, n_genes=N_SIG):
+    """Top-n up and down genes by t-statistic, among genes passing |log2FC| >= LFC_MIN."""
+    m = pb_obs[PATIENT_COL].isin(train_patients).values
+    d = pb_df[m]
+    lab = pb_obs["contrast"].values[m]
+    if (lab == "Late_DNT").sum() < 2 or (lab == "other").sum() < 2:
+        return None
+    a, b = d[lab == "Late_DNT"], d[lab == "other"]
+    t, _ = ttest_ind(a.values, b.values, axis=0, equal_var=False, nan_policy="omit")
+    stats = pd.Series(t, index=d.columns).dropna()
+    cpm_a = np.expm1(a).mean()
+    cpm_b = np.expm1(b).mean()
+    lfc = np.log2((cpm_a + 1) / (cpm_b + 1)).reindex(stats.index)
+    up   = stats[lfc >= LFC_MIN].sort_values(ascending=False).head(n_genes).index.tolist()
+    down = stats[lfc <= -LFC_MIN].sort_values(ascending=True).head(n_genes).index.tolist()
+    return {"up": up, "down": down}
+
+def patient_score(sig):
+    """Per-patient mean(up) - mean(down) across late DN cells."""
+    late_dn.obs.drop(columns=["sig_up", "sig_down"], errors="ignore", inplace=True)
+    out = pd.DataFrame(index=late_dn.obs[PATIENT_COL].unique())
+    if sig["up"]:
+        sc.tl.score_genes(late_dn, sig["up"], score_name="sig_up")
+        out["sig_up"] = late_dn.obs.groupby(PATIENT_COL, observed=True)["sig_up"].mean()
+    if sig["down"]:
+        sc.tl.score_genes(late_dn, sig["down"], score_name="sig_down")
+        out["sig_down"] = late_dn.obs.groupby(PATIENT_COL, observed=True)["sig_down"].mean()
+    return out.get("sig_up", 0) - out.get("sig_down", 0)
+
+def spearman_all(R, yr):
+    """Column-wise Spearman between a rank matrix R (patients x features) and ranked y."""
+    Rc = R - R.mean(axis=0)
+    yc = yr - yr.mean()
+    return (Rc * yc[:, None]).sum(axis=0) / np.sqrt((Rc**2).sum(axis=0) * (yc**2).sum())
+
+def read_gmt(path, require_prefix=None):
+    rows = []
+    with open(path) as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 3:
+                continue
+            name, desc, genes = parts[0], parts[1], parts[2:]
+            if require_prefix and not desc.startswith(require_prefix):
+                continue
+            rows += [(name, g) for g in genes if g]
+    net = pd.DataFrame(rows, columns=["source", "target"]).drop_duplicates()
+    sizes = net.groupby("source").size()
+    keep = sizes[(sizes >= MIN_SET) & (sizes <= MAX_SET)].index
+    return net[net["source"].isin(keep)]
+
+# ---------------- full-cohort signature and target ----------------
+sig_full = derive_signature(labeled)
+if sig_full is None:
+    raise ValueError("Signature is empty on all labeled patients. Check the sample counts.")
+sig_genes = set(sig_full["up"] + sig_full["down"])
+print(len(sig_full["up"]), "up |", len(sig_full["down"]), "down")
+y = patient_score(sig_full).loc[labeled]
+
+# ---------------- early pseudobulk over ALL early cells ----------------
+early_all = adata[is_early].copy()
+detected = np.asarray((early_all.X > 0).mean(axis=0)).ravel()
+genes = early_all.var_names[detected >= MIN_FRAC]
+print(f"{len(genes)} genes kept from {early_all.n_vars}")
+
+codes = pd.Categorical(early_all.obs[PATIENT_COL])
+M = sp.csr_matrix((np.ones(early_all.n_obs),
+                   (codes.codes, np.arange(early_all.n_obs))),
+                  shape=(len(codes.categories), early_all.n_obs))
+M = sp.diags(1 / np.asarray(M.sum(axis=1)).ravel()) @ M
+early_pb = pd.DataFrame(to_dense(M @ early_all[:, genes].X),
+                        index=codes.categories, columns=genes).loc[labeled]
+
+# ---------------- jackknife targets, built once and reused for every database ----------------
+jk_targets = {}
+for held in labeled:
+    train = [p for p in labeled if p != held]
+    sig_j = derive_signature(train)
+    if sig_j is None:
+        print(f"jackknife skip {held}: no usable signature")
+        continue
+    jk_targets[held] = (train, patient_score(sig_j).loc[train])
+
+# ---------------- per-database analysis ----------------
+yr = rankdata(y.values)
+ACT = {}
+
+def score_database(net, db):
+    out = dc.mt.ulm(data=early_pb, net=net)
+    A = out[0] if isinstance(out, tuple) else out
+    A = A.loc[labeled]
+    A = A.loc[:, A.std() > 0]
+    ACT[db] = A.copy()
+    Ar = A.rank(axis=0).values
+
+    # observed Spearman per pathway
+    r = pd.Series(spearman_all(Ar, yr), index=A.columns)
+
+    # exact permutation null: all orderings if n <= 8, otherwise random shuffles
+    perms = list(permutations(range(n))) if n <= 8 else \
+            [rng.permutation(n) for _ in range(N_PERM)]
+    null_abs = np.array([np.abs(spearman_all(Ar, yr[list(p)])) for p in perms])  # perms x pathways
+    # per-pathway exact p: fraction of permutations with |r| at least as large as observed
+    p_exact = pd.Series((null_abs >= np.abs(r.values)).mean(axis=0), index=A.columns)
+    # family-wise p within this database: fraction of permutations whose max |r| beats observed
+    p_fwe = pd.Series((null_abs.max(axis=1)[:, None] >= np.abs(r.values)).mean(axis=0),
+                      index=A.columns)
+
+    # jackknife: sign consistency and minimum |r| across drop-one-patient analyses
+    jk = []
+    for held, (train, yj) in jk_targets.items():
+        jk.append(pd.Series(spearman_all(A.loc[train].rank(axis=0).values, rankdata(yj.values)),
+                            index=A.columns))
+    jk = pd.DataFrame(jk)
+
+    # fraction of each set's genes that are in the signature
+    overlap = net.groupby("source")["target"].apply(
+        lambda g: len(set(g) & sig_genes) / len(g)).reindex(A.columns)
+
+    return pd.DataFrame({
+        "database": db,
+        "pathway": A.columns,
+        "spearman_r": r.values,
+        "p_exact": p_exact.values,
+        "p_fwe_within_db": p_fwe.values,
+        "jackknife_sign_consistency": (np.sign(jk) == np.sign(r)).mean(axis=0).values,
+        "min_abs_r_jackknife": jk.abs().min().values,
+        "signature_overlap": overlap.values,
+    })
+
+# ---------------- run all databases ----------------
+tables = []
+for db, (fname, prefix) in GMT_FILES.items():
+    net = read_gmt(fname, require_prefix=prefix)
+    print(f"{db}: {net['source'].nunique()} sets after size filter")
+    tables.append(score_database(net, db))
+
+results = pd.concat(tables, ignore_index=True)
+results["q_bh_all"] = multipletests(results["p_exact"], method="fdr_bh")[1]
+results = results.sort_values("p_exact").reset_index(drop=True)
+results.to_csv("early_pathway_persistence_all_databases.csv", index=False)
+
+# ---------------- per-patient activity in long format ----------------
+act_long = (pd.concat(ACT, names=["database", "patient"])
+              .reset_index()
+              .melt(id_vars=["database", "patient"], var_name="pathway", value_name="activity")
+              .dropna(subset=["activity"]))
+act_long["persistence_score"] = act_long["patient"].map(y)
+act_long.to_csv("early_pathway_activity_long.csv", index=False)
+y.rename("persistence_score").to_csv("persistence_score_per_patient.csv")
+
+print(results.head(20).round(3))
+```
+
+```{python}
+import re
+import pandas as pd
+
+# ---------------- filter settings: decide these before looking at results ----------------
+T_TERMS   = ("T_CELL", "TCELL", "TCR", "CD8", "CD4", "CD28", "LYMPHOCYTE", "MEMORY",
+             "EFFECTOR", "EXHAUST", "TREG", "NAIVE", "CYTOTOX", "INTERLEUKIN", "INTERFERON",
+             "IFN", "ANTIGEN", "MHC", "ACTIVATION", "PROLIFERAT", "IMMUNE", "LCK", "ZAP70",
+             "PD_1", "PD-1", "CTLA4", "GRANZYME", "PERFORIN", "TBET", "EOMES", "IL7", "IL2", "IL15")
+OFF_TERMS = ("NEUTROPHIL", "MONOCYTE", "MACROPHAGE", "DENDRITIC", "BASOPHIL", "PLASMACYTOID",
+             "PLATELET", "ERYTHROCYTE", "CILI", "AXONEM", "NEURON", "INSULIN", "GLIAL",
+             "SPERMAT", "OLFACT", "KERATIN", "PANCREAS", "HEPATO", "ADIPO", "MYOGEN")
+OVERLAP_MAX   = 0.2     # drop sets sharing more than this fraction of genes with the signature
+REDUNDANT_J   = 0.5     # collapse sets whose gene-level Jaccard similarity exceeds this
+TOP_N         = 15      # per database, for the printed shortlist
+
+def has_any(name, terms):
+    u = name.upper()
+    return any(t in u for t in terms)
+
+# ---------------- load gene sets (needed for the redundancy step) ----------------
+gene_sets = {}
+for db, (fname, prefix) in GMT_FILES.items():
+    net_db = read_gmt(fname, require_prefix=prefix)
+    gene_sets[db] = net_db.groupby("source")["target"].apply(set).to_dict()
+
+# ---------------- stage 1: relevance filter (keyword, applied to every database) ----------------
+f = results.copy()
+f["abs_r"] = f["spearman_r"].abs()
+is_t = f["pathway"].apply(lambda s: has_any(s, T_TERMS))
+is_off = f["pathway"].apply(lambda s: has_any(s, OFF_TERMS))
+f = f[is_t & ~(is_off & ~is_t)]   # keep T-relevant sets; off-target sets are already excluded
+print(f"after relevance filter: {len(f)} sets")
+
+# ---------------- stage 2: signature overlap and jackknife stability ----------------
+f = f[(f["signature_overlap"] <= OVERLAP_MAX) & (f["jackknife_sign_consistency"] == 1.0)]
+print(f"after overlap and jackknife filters: {len(f)} sets")
+
+# ---------------- stage 3: collapse redundant sets within each database ----------------
+def collapse(df_db, sets):
+    kept = []
+    for pw in df_db.sort_values(["abs_r", "p_exact"], ascending=[False, True])["pathway"]:
+        g = sets.get(pw, set())
+        if not g:
+            continue
+        redundant = any(len(g & sets[k]) / len(g | sets[k]) > REDUNDANT_J
+                        for k in kept if k in sets)
+        if not redundant:
+            kept.append(pw)
+    return df_db[df_db["pathway"].isin(kept)]
+
+f = pd.concat([collapse(g, gene_sets[db]) for db, g in f.groupby("database")],
+              ignore_index=True)
+print(f"after redundancy collapse: {len(f)} sets")
+
+# ---------------- stage 4: rank and save ----------------
+f = f.sort_values(["abs_r", "p_exact"], ascending=[False, True]).reset_index(drop=True)
+f.to_csv("early_pathway_filtered.csv", index=False)
+
+for db, g in f.groupby("database"):
+    print(f"\n{db}: top {TOP_N}")
+    print(g[["pathway", "spearman_r", "p_exact", "q_bh_all", "signature_overlap"]]
+          .head(TOP_N).round(3).to_string(index=False))
+```
+
+```{python}
+import matplotlib.pyplot as plt
+
+TOP_X = 4
+dbs = results["database"].unique()
+fig, axes = plt.subplots(len(dbs), TOP_X,
+                         figsize=(3.6 * TOP_X, 3.4 * len(dbs)), squeeze=False)
+
+for i, db in enumerate(dbs):
+    top = results[results["database"] == db].head(TOP_X).reset_index(drop=True)
+    for j in range(TOP_X):
+        ax = axes[i, j]
+        if j >= len(top):
+            ax.set_visible(False)
+            continue
+
+        row = top.iloc[j]
+        sub = act_long[(act_long["database"] == db) & (act_long["pathway"] == row["pathway"])]
+        x = sub.set_index("patient")["activity"].reindex(labeled)
+        yy = y.reindex(labeled)
+
+        ax.scatter(x, yy, s=45, color="steelblue", edgecolor="k", zorder=3)
+        for p in labeled:
+            ax.annotate(p, (x[p], yy[p]), textcoords="offset points",
+                        xytext=(4, 3), fontsize=7)
+
+        ax.set_title(f"{db}\n{row['pathway'][:45]}\nρ={row['spearman_r']:.2f}, "
+             f"p={row['p_exact']:.3f}, q={row['q_bh_all']:.2f}", fontsize=7)
+        ax.set_xlabel("Early activity (ulm)", fontsize=7)
+        ax.set_ylabel("Late persistence score", fontsize=7)
+        ax.tick_params(labelsize=6)
+
+fig.suptitle("Top early pathways per database vs late persistence score (n = 7)", fontsize=10)
+plt.tight_layout()
+plt.savefig("pathway_scatter_by_database.png", dpi=300)
+plt.show()
+```
+

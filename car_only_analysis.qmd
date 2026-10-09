@@ -700,7 +700,7 @@ p = (
     .layout(size=(8,8))
 )
 
-p.save("car_only/labels_proportions_patient_and_time.png", dpi=300, bbox_inches="tight")
+p.save("car_only/labels_proportions_patient_time.png", dpi=300, bbox_inches="tight")
 ```
 
 # trying PAGA psuedotime to see how it performs compared to slingshot
