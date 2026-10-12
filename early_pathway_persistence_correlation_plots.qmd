@@ -1,0 +1,39 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+correlation <- read.csv("early_pathway_activity_long.csv")
+pathways <- read.csv("early_pathway_filtered.csv")
+```
+
+```{r}
+top_pathways <- pathways %>%
+  group_by(database) %>%
+  arrange(desc(abs(spearman_r)), p_exact) %>%
+  slice_head(n = 10) %>%
+  ungroup()
+
+top_pathways <- filter(top_pathways, spearman_r > 0.75 | spearman_r < -0.75)
+```
+
+```{r}
+correlation_filtered <- filter(correlation, pathway %in% top_pathways$pathway)
+```
+
+```{r}
+ggplot(correlation_filtered, aes(x= activity, y = persistence_score, color = database))+geom_point()+
+geom_smooth(method = "lm", se = FALSE, colour = "grey50", linetype = "dashed", linewidth = 0.4)+facet_wrap(~pathway, scales ="free")+theme_classic()
+```
+
+```{r}
+ggplot(top_pathways, aes(x= spearman_r, y = reorder(pathway, spearman_r), fill = spearman_r))+geom_col()+theme_bw()+scale_fill_distiller(palette = "RdBu")
+```
