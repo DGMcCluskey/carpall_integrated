@@ -8,6 +8,7 @@ format: html
 library(ggplot2)
 library(dplyr)
 library(tidyr)
+library(ggrepel)
 ```
 
 ```{r}
@@ -30,10 +31,50 @@ correlation_filtered <- filter(correlation, pathway %in% top_pathways$pathway)
 ```
 
 ```{r}
-ggplot(correlation_filtered, aes(x= activity, y = persistence_score, color = database))+geom_point()+
-geom_smooth(method = "lm", se = FALSE, colour = "grey50", linetype = "dashed", linewidth = 0.4)+facet_wrap(~pathway, scales ="free")+theme_classic()
+p <- ggplot(top_pathways, aes(x= spearman_r, y = reorder(pathway, spearman_r), fill = spearman_r))+geom_col()+theme_bw()+scale_fill_distiller(palette = "RdBu")+theme(axis.text.y =element_text(size=12, color = "black", face="bold"))
+p
+ggsave(plot=p, filename = "car_only/early_pathways_correlation_list.png", dpi = 300, height = 10, width = 16)
 ```
 
 ```{r}
-ggplot(top_pathways, aes(x= spearman_r, y = reorder(pathway, spearman_r), fill = spearman_r))+geom_col()+theme_bw()+scale_fill_distiller(palette = "RdBu")
+p <- ggplot(filter(correlation_filtered, pathway %in% 
+    c("GOBP_CELLULAR_RESPONSE_TO_INTERLEUKIN_1")), 
+    aes(x= activity, y = persistence_score, label = patient))+
+        geom_smooth(method = "lm", se = T, colour = "grey30", linewidth = 0.4)+
+        geom_point()+geom_text_repel(aes(fontface="bold"))+
+        facet_wrap(~pathway, scales ="free")+theme_classic()+
+        ylab("Persistence score")+xlab("Early pathway activity")+
+        theme(axis.title = element_text(size=14, colour = "black", face = "bold"))
+p
+ggsave(plot=p, filename="car_only/example_pathway_persistence_score_correlation.png", dpi=300,
+height=4,width=4)
+
+```
+
+```{r}
+p <- ggplot(filter(correlation_filtered, pathway %in%
+    c("HALLMARK_NOTCH_SIGNALING",
+    "GOBP_POSITIVE_REGULATION_OF_CELL_FATE_COMMITMENT")) %>%
+      mutate(pathway = factor(pathway,
+                              levels = c("HALLMARK_NOTCH_SIGNALING",
+                                         "GOBP_POSITIVE_REGULATION_OF_CELL_FATE_COMMITMENT"))), 
+    aes(x= activity, y = persistence_score, label = patient))+
+        scale_colour_manual(values=c("darkred", "royalblue"))+
+        geom_smooth(method = "lm", se = T, colour = "grey30", linewidth = 0.4)+
+        geom_point(size=3)+geom_text_repel(aes(fontface="bold", size=5))+
+        facet_wrap(~pathway, scales ="free",ncol=1)+theme_classic()+
+        theme(strip.text = element_text(size=12, colour="black", face = "bold"))
+p
+ggsave(plot=p,filename="car_only/cell_fate_and_notch_correlation_examples.png", dpi=300,
+height=10, width = 7)
+
+```
+
+```{r}
+gene_makeup <- read.csv(("early_pathway_member_genes.csv"))
+gene_makeup <- filter(gene_makeup, pathway %in% top_pathways$pathway)
+```
+
+```{r}
+notch <- filter(gene_makeup, pathway %in% "HALLMARK_NOTCH_SIGNALING")
 ```

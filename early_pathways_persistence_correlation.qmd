@@ -31,8 +31,8 @@ rng = np.random.default_rng(SEED)
 
 GMT_FILES = {
     "Hallmark":    ("h.all.v2026.1.Hs.symbols.gmt", None),
-    "GO_BP":       ("c5.go.v2026.1.Hs.symbols.gmt", None),
-    "KEGG":        ("c2.cp.kegg_legacy.v2026.1.Hs.symbols.gmt", None),
+    "GO_BP":       ("c5.go.bp.v2026.1.Hs.symbols.gmt", None),
+    "KEGG":        ("c2.cp.kegg_medicus.v2026.1.Hs.symbols.gmt", None),
     "Reactome":    ("ReactomePathways.gmt", "R-HSA"),
     "ImmuneSigDB": ("c7.immunesigdb.v2026.1.Hs.symbols.gmt", None),
 }
@@ -349,6 +349,72 @@ adata.write_h5ad("car_only_with_persistence.h5ad")
 ```
 
 ```{python}
-sc.pl.dotplot(adata, var_names=["FXYD2", "TIGIT", "GPR183", "HLA-DRB1"], groupby="Patient")
+from scipy.stats import spearmanr
+
+rows = []
+for _, r in f.iterrows():
+    db, pw = r["database"], r["pathway"]
+    members = gene_sets[db].get(pw, set())
+    act = ACT[db][pw].reindex(labeled)
+
+    for g in sorted(members):
+        measured = g in early_pb.columns
+        row = {
+            "database": db,
+            "pathway": pw,
+            "pathway_spearman_r": r["spearman_r"],
+            "pathway_p_exact": r["p_exact"],
+            "gene": g,
+            "measured_early": measured,
+            "in_signature": g in sig_genes,
+            "signature_direction": ("up" if g in sig_full["up"]
+                                    else "down" if g in sig_full["down"] else ""),
+        }
+        if measured:
+            e = early_pb[g]
+            row["mean_early_log_expr"] = e.mean()
+            row["rho_with_pathway_activity"] = spearmanr(e, act)[0]
+            row["rho_with_persistence"] = spearmanr(e, y)[0]
+        rows.append(row)
+
+gene_table = pd.DataFrame(rows)
+gene_table["abs_rho_with_activity"] = gene_table["rho_with_pathway_activity"].abs()
+gene_table = gene_table.sort_values(["database", "pathway", "abs_rho_with_activity"],
+                                    ascending=[True, True, False])
+gene_table.to_csv("early_pathway_member_genes.csv", index=False)
+print(gene_table.groupby(["database", "pathway"]).agg(
+    n_members=("gene", "size"),
+    n_measured=("measured_early", "sum"),
+    n_in_signature=("in_signature", "sum")).head(20))
 ```
 
+```{python}
+plt.close()
+fig=sc.pl.umap(adata, color = "Timepoint_bin", groups="Early", return_fig=True, frameon=False, size=1)
+fig.set_size_inches(5, 3)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_early_cells_highlight.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+adata.obs["Time_labels"] = (
+    adata.obs["Timepoint_bin"].astype(str)
+    + "_"
+    + adata.obs["labels"].astype(str)
+)
+```
+
+```{python}
+plt.close()
+fig=sc.pl.umap(adata, color = "Time_labels", groups="Late_DN T", return_fig=True, frameon=False, size=1, palette = ["royalblue", "grey"])
+fig.set_size_inches(5, 3)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_late_dnt_highlight.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+plt.close("all")
+sc.pl.dotplot(adata, var_names = ["NOTCH2", "GATA3", "MAML1", "RBPJ"], groupby="labels", standard_scale="var")
+```
