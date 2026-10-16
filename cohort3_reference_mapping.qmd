@@ -12,6 +12,7 @@ import harmonypy as hm
 import anndata
 import kaleido
 import plotly.io as pio
+import decoupler as dc
 ```
 
 # running scvi integration instead of reference mapping as there is clearly a batch effect
@@ -19,6 +20,8 @@ import plotly.io as pio
 ref = sc.read("2_car_only_annotated_v3.h5ad")
 
 query = sc.read_h5ad("3_carpallcohort3_clustered.h5ad")
+
+sc.pl.scatter(query, x = "CAR_CD19_variable_region", y = "CAR_CD22_variable_region")
 
 # again selectf or CAR+ cells
 gene1 = np.asarray(
@@ -30,7 +33,7 @@ gene2 = np.asarray(
 ).ravel()
 
 query = query[
-    (gene1 > 0.5) | (gene2 > 0.5)
+    (gene1 > 0.5) & (gene2 < 0.5)
 ].copy()
 
 #and remove the healthies (their timpeoint is NA)
@@ -401,5 +404,124 @@ fig.savefig(
     dpi=300,
     bbox_inches="tight",
 )
+plt.show()
+```
+
+```{python}
+early = full_int_allgenes[
+    full_int_allgenes.obs["Timepoint_bin"].isin(["Early", "d14"])].copy()
+```
+
+```{python}
+print(early.obs[["Patient", "Timepoint_bin"]]
+.drop_duplicates()
+.sort_values(["Patient", "Timepoint_bin"])
+.to_string(index=False))
+```
+
+```{python}
+early.obs["Patient"] = early.obs["Patient"].astype(str)
+early.obs["Timepoint_bin"] = early.obs["Timepoint_bin"].astype(str)
+
+early_pb = dc.pp.pseudobulk(
+    early,
+    sample_col="Patient",
+    groups_col="Timepoint_bin",
+    layer="counts",
+    empty=False
+)
+print(
+    early_pb.obs[["Patient", "Timepoint_bin"]]
+    .drop_duplicates()
+    .sort_values(["Patient", "Timepoint_bin"])
+    .to_string(index=False)
+)
+totals = np.asarray(early_pb.X.sum(axis=1)).ravel()
+keep = totals > 0
+early_pb = early_pb[keep].copy()
+
+print(early_pb.obs[["Patient", "Timepoint_bin"]]
+      .sort_values(["Patient", "Timepoint_bin"]).to_string(index=False))
+```
+
+```{python}
+sc.pp.normalize_total(early_pb, target_sum=1e6)
+sc.pp.log1p(early_pb)
+```
+
+```{python}
+plt.close("all")
+genes = ["NOTCH1", "NOTCH2", "LFNG", "MAML2", "RBX1", "PRKCA",
+         "DTX2", "CUL1", "FBXW11", "PSENEN", "SKP1", "APH1A", "ADAM10", "ADAM17"]
+genes = [g for g in genes if g in early_pb.var_names]
+
+df = early_pb.to_df()[genes]
+df = df.join(early_pb.obs[["Patient", "Timepoint_bin"]])
+
+df_long = df.melt(
+    id_vars=["Patient", "Timepoint_bin"],
+    value_vars=genes,
+    var_name="Gene",
+    value_name="Expression",
+)
+
+df_long["Timepoint_bin"] = df_long["Timepoint_bin"].replace({
+    "Early": "Cohort1_early",
+    "d14": "Cohort3_early"
+})
+
+g = sns.catplot(
+    data=df_long,
+    x="Timepoint_bin",
+    y="Expression",
+    col="Gene",
+    hue="Timepoint_bin",
+    col_wrap=4,        # number of columns; change to set how the genes wrap
+    kind="box",
+    sharex=True,      # free x-axes (scales="free_x")
+    sharey=False,      # free y-axes (scales="free_y"); use both for "free"
+    height=2.5,        # height of each panel in inches
+    aspect=1.1,        # width/height ratio of each panel
+)
+g.set_titles("{col_name}")
+plt.show()
+```
+
+```{python}
+plt.close("all")
+sc.pl.dotplot(early_pb, var_names = ["NOTCH1", "NOTCH2", "LFNG", "MAML2", "RBX1", "PRKCA", "DTX2", "CUL1", "FBXW11", "PSENEN", "SKP1", "APH1A"], groupby="Timepoint_bin")
+
+sc.pl.dotplot(early, var_names = ["NOTCH1", "NOTCH2", "LFNG", "MAML2", "RBX1", "PRKCA", "DTX2", "CUL1", "FBXW11", "PSENEN", "SKP1", "APH1A"], groupby="Timepoint_bin")
+```
+
+```{python}
+plt.close("all")
+genes = ["HES1", "HES5", "HEY1", "HEY2"]
+genes = [g for g in genes if g in early_pb.var_names]
+
+df = early_pb.to_df()[genes]
+df = df.join(early_pb.obs[["Patient", "Timepoint_bin"]])
+
+df_long = df.melt(
+    id_vars=["Patient", "Timepoint_bin"],
+    value_vars=genes,
+    var_name="Gene",
+    value_name="Expression",
+)
+
+g = sns.catplot(
+    data=df_long,
+    x="Timepoint_bin",
+    y="Expression",
+    col="Gene",
+    hue="Timepoint_bin",
+    col_wrap=4,        # number of columns; change to set how the genes wrap
+    kind="box",
+    sharex=True,      # free x-axes (scales="free_x")
+    sharey=False,      # free y-axes (scales="free_y"); use both for "free"
+    height=2.5,        # height of each panel in inches
+    aspect=1.1,        # width/height ratio of each panel
+)
+g.set_titles("{col_name}")
 plt.show()
 ```

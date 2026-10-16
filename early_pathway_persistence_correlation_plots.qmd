@@ -76,5 +76,18 @@ gene_makeup <- filter(gene_makeup, pathway %in% top_pathways$pathway)
 ```
 
 ```{r}
-notch <- filter(gene_makeup, pathway %in% "HALLMARK_NOTCH_SIGNALING")
+notch <- filter(gene_makeup, pathway %in% "HALLMARK_NOTCH_SIGNALING" & measured_early == "True")
+```
+
+```{r}
+stemness <- gene_makeup %>%
+  filter(
+    grepl("UP", pathway) &
+    measured_early == "True" &
+    !grepl("IGM", pathway)
+  )
+```
+
+```{r}
+foxp3 <- filter(gene_makeup, pathway %in% c("GSE7460_CTRL_VS_TGFB_TREATED_ACT_FOXP3_HET_TCONV_DN", "GSE40274_XBP1_VS_FOXP3_AND_XBP1_TRANSDUCED_ACTIVATED_CD4_TCELL_DN") & measured_early == "True")
 ```

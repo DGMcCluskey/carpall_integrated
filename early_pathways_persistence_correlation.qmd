@@ -418,3 +418,14 @@ plt.close
 plt.close("all")
 sc.pl.dotplot(adata, var_names = ["NOTCH2", "GATA3", "MAML1", "RBPJ"], groupby="labels", standard_scale="var")
 ```
+
+```{python}
+contribution_numbers = gene_table.groupby(["database", "pathway"]).agg(
+    n_members=("gene", "size"),
+    n_measured=("measured_early", "sum"),
+    n_in_signature=("in_signature", "sum")).head(20)
+```
+
+```{python}
+sc.pl.umap(adata, color = ["NOTCH1", "NOTCH2"], cmap="magma_r", size=10)
+```
