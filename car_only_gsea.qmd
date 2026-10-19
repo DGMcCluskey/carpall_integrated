@@ -36,20 +36,20 @@ lin3_tfs_down <- read.csv("tf_enrichment/TFs_inactive_lineage3.csv")
 
 ```{r}
 venn.diagram(x=list(branch_tfs_up$name, lin1_tfs_up$name, lin3_tfs_up$name),
-    category.names = c("Branch", "Lineage1", "Lineage3"),
+    category.names = c("Branching", "Persisting", "Non-persisting"),
     height = 1000, width = 1000, 
     filename = "car_only/active_TFs_venn.png",
     resolution = 300,
-    fill = c("mediumseagreen", "orange", "mediumvioletred"),
+    fill = c("darkorchid", "royalblue", "red"),
     col="white", alpha = 0.5, cex = 1.5, fontface = "bold", fontfamily = "sans", cat.cex = 0.8, lwd = 3,
     cat.fontfamily = "sans")
 
 venn.diagram(x=list(branch_tfs_down$name, lin1_tfs_down$name, lin3_tfs_down$name),
-    category.names = c("Branch", "Lineage1", "Lineage3"),
+    category.names = c("Branching", "Persisting", "Non-persisting"),
     height = 1000, width = 1000, 
     filename = "car_only/inactive_TFs_venn.png",
     resolution = 300,
-    fill = c("mediumseagreen", "orange", "mediumvioletred"),
+    fill = c("darkorchid", "royalblue", "red"),
     col="white", alpha = 0.5, cex = 1.5, fontface = "bold", fontfamily = "sans", cat.cex = 0.8, lwd = 3,
     cat.fontfamily = "sans")
 ```

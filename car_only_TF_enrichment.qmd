@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import seaborn.objects as so
 ```
 
 ```{python}
@@ -111,25 +112,82 @@ cars.obs["lineage_group"] = cars.obs["lineage_group"].astype("category")
 ```
 
 ```{python}
+cars.obs["lineage_group"] = (cars.obs["lineage_group"].cat.rename_categories({
+    "Branch":"Branching",
+    "Lineage1":"Persisting",
+    "Lineage3":"Non-persisting",
+    "Other":"Other"
+}))
+```
+
+```{python}
 plt.close()
-fig=sc.pl.umap(cars, color = "lineage_group",return_fig=True, frameon=False)
-fig.set_size_inches(4, 4)
+fig=sc.pl.umap(cars, color = "lineage_group",return_fig=True, frameon=False, palette=["darkorchid", "royalblue", "red", "grey"])
+fig.set_size_inches(6, 4)
 print(fig.get_size_inches())
 fig.savefig("car_only/umap_lineage_groups.png", dpi=300, bbox_inches="tight")
 plt.close
 ```
 
 ```{python}
-ax = sc.pl.heatmap(
-    cars,
-    var_names = ["GATA3", "IL4R"],
-    groupby="lineage_group",
-    cmap="RdBu_r",
-    dendrogram=True,
-    swap_axes=True,
-    figsize=(11, 4),
+counts = pd.crosstab(
+    cars.obs["lineage_group"],
+    cars.obs["labels"]
 )
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
 ```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "lineage_group", var_name = "celltype", value_name = "percent")
+```
+
+```{python}
+label_palette = {
+    "CM CD8+ T":"darkred",
+    "Activated CM CD8+ T":"mediumvioletred",
+    "DN T":"springgreen",
+    "Cycling T":"skyblue",
+    "DN/CD8+ T":"forestgreen",
+    "Naive/CM T":"deepskyblue",
+    "Activated Naive/CM T":"blue",
+    "Product CD8+ T":"grey",
+    "GD/CD8+ T":"gold",
+    "EM CD8+ T":"red",
+    "Early EM CD8+ T":"indianred",
+    "Myeloid contamination":"tan",
+    "Product Mixed T":"black",
+    "Exhausted/Late EM CD8+ T":"darkorchid"
+}
+```
+
+```{python}
+props = props[
+    props["lineage_group"].isin([
+        "Branching", "Persisting", "Non-persisting"
+    ])
+].copy()
+
+props["lineage_group"] = props["lineage_group"].cat.remove_unused_categories()
+```
+
+```{python}
+p = (
+    so.Plot(props, x="lineage_group", y="percent", color="celltype")
+    .scale(color=label_palette)
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(6,6))
+)
+
+p.save("car_only/lineage_group_proportions.png", dpi=300, bbox_inches="tight")
+```
+
+
 
 ```{python}
 cell_counts = cars.obs["lineage_group"].value_counts().reset_index(name="n_cells")

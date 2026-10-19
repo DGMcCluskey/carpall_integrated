@@ -1,0 +1,147 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{r}
+library(Seurat)
+library(CellChat)
+library(dplyr)
+library(ggplot2)
+library(anndataR)
+```
+
+```{r}
+file.info("5_carpall_annotated.h5ad")$size / 1e9  # size in GB
+```
+
+
+```{r}
+carpall <- anndataR::read_h5ad("5_carpall_annotated.h5ad", as = "Seurat")
+```
+
+```{r}
+DimPlot(carpall, group.by = "broad_labels")
+```
+
+```{r}
+Idents(carpall) <- "Timepoint_bin"
+early <- subset(carpall, idents = "Early")
+late <- subset(carpall, idents = "Late")
+rm(carpall)
+table(early$broad_labels)
+table(late$broad_labels)
+```
+
+```{r}
+LayerData(late, assay = "RNA", layer = "data") <-
+  LayerData(late, assay = "RNA", layer = "logcounts")
+
+LayerData(early, assay = "RNA", layer = "data") <-
+  LayerData(early, assay = "RNA", layer = "logcounts")
+
+Layers(late[["RNA"]])  # should now include "data"
+```
+
+```{r}
+late.chat <- createCellChat(late, group.by = "broad_labels", assay = "RNA")
+early.chat <- createCellChat(early, group.by = "broad_labels", assay = "RNA")
+```
+
+```{r}
+CellChatDB <- CellChatDB.human # use CellChatDB.mouse if running on mouse data
+showDatabaseCategory(CellChatDB)
+```
+```{r}
+CellChatDB.use <- subsetDB(CellChatDB)
+```
+
+```{r}
+early.chat@DB <- CellChatDB.use
+late.chat@DB <- CellChatDB.use
+```
+```{r}
+early.chat <- subsetData(early.chat) # This step is necessary even if using the whole database
+late.chat <- subsetData(late.chat) # This step is necessary even if using the whole database
+```
+```{r}
+early.chat <- identifyOverExpressedGenes(early.chat)
+early.chat <- identifyOverExpressedInteractions(early.chat)
+late.chat <- identifyOverExpressedGenes(late.chat)
+late.chat <- identifyOverExpressedInteractions(late.chat)
+```
+
+```{r}
+early.chat <- subsetData(early.chat)
+late.chat <- subsetData(late.chat)
+```
+
+```{r}
+early.chat <- computeCommunProb(early.chat, type = "truncatedMean", trim = 0.1, population.size = F)
+late.chat <- computeCommunProb(late.chat, type = "truncatedMean", trim=0.1, population.size = F)
+```
+```{r}
+early.chat <- filterCommunication(early.chat, min.cells = 10, min.samples=1)
+late.chat <- filterCommunication(late.chat, min.cells = 10, min.samples=1)
+```
+```{r}
+early.chat <- computeCommunProbPathway(early.chat)
+late.chat <- computeCommunProbPathway(late.chat)
+```
+```{r}
+early.chat <- aggregateNet(early.chat)
+late.chat <- aggregateNet(late.chat)
+```
+```{r}
+options(future.seed = TRUE)
+early.chat <- netAnalysis_computeCentrality(early.chat, slot.name = "netP")
+late.chat <- netAnalysis_computeCentrality(late.chat, slot.name = "netP")
+```
+```{r}
+saveRDS(early.chat, file = "early.cellchat.rds")
+saveRDS(late.chat, file = "late.cellchat.rds")
+```
+
+```{r}
+object.list <- list(AML= AML.chat, HC = HC.chat)
+chat_object <- mergeCellChat(object.list, add.names = names(object.list))
+```
+
+```{r}
+netVisual_diffInteraction(chat_object, comparison = c(1,2), vertex.size.max = 10, edge.width.max = 1,label.edge = F)
+```
+
+```{r}
+p1 <- compareInteractions(chat_object, show.legend = F, group = c("AML", "HC"))+
+  scale_fill_manual(values = c("mediumseagreen", "darkorchid"))+#scale_y_continuous(expand = c(0,0))+
+  theme(axis.text.x = element_text(size = 14, colour = "black"))+
+  theme(axis.title.y = element_text(size = 16, colour = "black"))
+p2 <- compareInteractions(chat_object, show.legend = F, group = c("AML", "HC"), measure = "weight")+
+  scale_fill_manual(values = c("mediumseagreen", "darkorchid"))+#scale_y_continuous(expand = c(0,0))+
+  theme(axis.text.x = element_text(size = 14, colour = "black"))+
+  theme(axis.title.y = element_text(size = 16, colour = "black"))
+
+p <- p1+p2
+
+p
+```
+
+```{r}
+rankNet(chat_object, mode = "comparison", comparison = c(1,2), measure = "weight", stacked = F, do.stat = T)
+pathways <- rankNet(chat_object, mode = "comparison", comparison = c(1,2), measure = "weight", stacked = T, do.stat = T)
+pathways
+pathways <- pathways$data
+pathways <- filter(pathways, pvalues < 0.05)
+
+diff.pathways <- unique(pathways$name)
+
+p <- ggplot(pathways, aes(x = contribution.scaled, y = name, fill = group))+
+  geom_col(position = "fill", width = 0.5)+
+  theme_bw()+scale_x_continuous(expand = c(0,0))+geom_vline(xintercept = 0.5, linetype = "dashed", colour = "grey30")+
+  scale_fill_manual(values = c("mediumseagreen", "darkorchid"))+
+  theme(axis.text = element_text(size = 12, colour = "black"))+
+  ylab("Pathway")+xlab("Relative signalling strength")
+
+p
+```

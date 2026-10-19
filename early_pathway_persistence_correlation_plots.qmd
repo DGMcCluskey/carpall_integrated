@@ -53,20 +53,19 @@ height=4,width=4)
 
 ```{r}
 p <- ggplot(filter(correlation_filtered, pathway %in%
-    c("HALLMARK_NOTCH_SIGNALING",
-    "GOBP_POSITIVE_REGULATION_OF_CELL_FATE_COMMITMENT")) %>%
+    c("HALLMARK_NOTCH_SIGNALING")) %>%
       mutate(pathway = factor(pathway,
-                              levels = c("HALLMARK_NOTCH_SIGNALING",
-                                         "GOBP_POSITIVE_REGULATION_OF_CELL_FATE_COMMITMENT"))), 
+                              levels = c("HALLMARK_NOTCH_SIGNALING"))), 
     aes(x= activity, y = persistence_score, label = patient))+
         scale_colour_manual(values=c("darkred", "royalblue"))+
         geom_smooth(method = "lm", se = T, colour = "grey30", linewidth = 0.4)+
-        geom_point(size=3)+geom_text_repel(aes(fontface="bold", size=5))+
-        facet_wrap(~pathway, scales ="free",ncol=1)+theme_classic()+
-        theme(strip.text = element_text(size=12, colour="black", face = "bold"))
+        geom_point(size=3)+geom_text_repel(aes(fontface="bold"))+theme_classic()+
+        theme(axis.title = element_text(size=14, colour="black", face = "bold"))+
+        xlab("Early pathway activity")+ylab("Late DN T persistence score")+
+        ggtitle("HALLMARK_NOTCH_SIGNALING")+theme(title = element_text(size=14, colur="black", face = "bold"))
 p
-ggsave(plot=p,filename="car_only/cell_fate_and_notch_correlation_examples.png", dpi=300,
-height=10, width = 7)
+ggsave(plot=p,filename="car_only/notch_correlation_examples.png", dpi=300,
+height=6, width = 6)
 
 ```
 

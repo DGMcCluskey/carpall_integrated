@@ -409,7 +409,7 @@ plt.show()
 
 ```{python}
 early = full_int_allgenes[
-    full_int_allgenes.obs["Timepoint_bin"].isin(["Early", "d14"])].copy()
+    full_int_allgenes.obs["Timepoint_bin"].isin(["Early", "Late"])].copy()
 ```
 
 ```{python}
@@ -451,8 +451,7 @@ sc.pp.log1p(early_pb)
 
 ```{python}
 plt.close("all")
-genes = ["NOTCH1", "NOTCH2", "LFNG", "MAML2", "RBX1", "PRKCA",
-         "DTX2", "CUL1", "FBXW11", "PSENEN", "SKP1", "APH1A", "ADAM10", "ADAM17"]
+genes = ["NOTCH1", "NOTCH2", "LFNG", "ADAM10"]
 genes = [g for g in genes if g in early_pb.var_names]
 
 df = early_pb.to_df()[genes]
@@ -485,6 +484,8 @@ g = sns.catplot(
 )
 g.set_titles("{col_name}")
 plt.show()
+g.fig.set_size_inches(12, 4)
+g.savefig("car_only/notch_signalling_genes_cohort1v3.png", dpi=300)
 ```
 
 ```{python}
@@ -524,4 +525,6 @@ g = sns.catplot(
 )
 g.set_titles("{col_name}")
 plt.show()
+g.fig.set_size_inches(12, 4)
+g.savefig("car_only/notch_downstream_genes.png", dpi=300)
 ```

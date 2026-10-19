@@ -69,8 +69,8 @@ rsync -avh --progress \
 
 ```{bash}
 rsync -avh --progress \
-  UCL_cluster:/home/lab/dmccluskey/carpall_full_scanvi_corrected.h5ad \
-  ./
+  ./5_carpall_annotated.h5ad \
+  ..../carpall/
 ```
 
 ```{bash}
