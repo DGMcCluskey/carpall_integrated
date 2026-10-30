@@ -749,5 +749,5 @@ sc.pl.scatter(cars, "pt_L3", "GATA3")
 ```
 
 ```{python}
-sc.pl.dotplot(cars, var_names=["GATA3", "STAT6", "MAML1", "EP300", "RAD50", "NOTCH1", "TBX21", "IRF4"], groupby="lineage_group", standard_scale="var")
+sc.pl.dotplot(cars, var_names=["GATA3", "STAT6", "MAML1", "EP300", "RAD50", "NOTCH1", "TBX21", "IRF4", "SLC22A2", "FOXO3", "BACH2"], groupby="lineage_group", standard_scale="var")
 ```

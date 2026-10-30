@@ -19,6 +19,9 @@ file.info("5_carpall_annotated.h5ad")$size / 1e9  # size in GB
 
 ```{r}
 carpall <- anndataR::read_h5ad("5_carpall_annotated.h5ad", as = "Seurat")
+Idents(carpall) <- "broad_labels"
+carpall <- subset(carpall, !broad_labels %in% c("VD2+ GD T", "VD2- GD T"))
+carpall$broad_labels <- droplevels(carpall$broad_labels)
 ```
 
 ```{r}
@@ -26,6 +29,7 @@ DimPlot(carpall, group.by = "broad_labels")
 ```
 
 ```{r}
+carpall$samples <- carpall$Patient
 Idents(carpall) <- "Timepoint_bin"
 early <- subset(carpall, idents = "Early")
 late <- subset(carpall, idents = "Late")
@@ -78,8 +82,8 @@ late.chat <- subsetData(late.chat)
 ```
 
 ```{r}
-early.chat <- computeCommunProb(early.chat, type = "truncatedMean", trim = 0.1, population.size = F)
-late.chat <- computeCommunProb(late.chat, type = "truncatedMean", trim=0.1, population.size = F)
+early.chat <- computeCommunProb(early.chat, type = "triMean", population.size = F)
+late.chat <- computeCommunProb(late.chat, type = "triMean", population.size = F)
 ```
 ```{r}
 early.chat <- filterCommunication(early.chat, min.cells = 10, min.samples=1)
@@ -104,7 +108,7 @@ saveRDS(late.chat, file = "late.cellchat.rds")
 ```
 
 ```{r}
-object.list <- list(AML= AML.chat, HC = HC.chat)
+object.list <- list(early= early.chat, late = late.chat)
 chat_object <- mergeCellChat(object.list, add.names = names(object.list))
 ```
 
@@ -113,11 +117,11 @@ netVisual_diffInteraction(chat_object, comparison = c(1,2), vertex.size.max = 10
 ```
 
 ```{r}
-p1 <- compareInteractions(chat_object, show.legend = F, group = c("AML", "HC"))+
+p1 <- compareInteractions(chat_object, show.legend = F, group = c("early", "late"))+
   scale_fill_manual(values = c("mediumseagreen", "darkorchid"))+#scale_y_continuous(expand = c(0,0))+
   theme(axis.text.x = element_text(size = 14, colour = "black"))+
   theme(axis.title.y = element_text(size = 16, colour = "black"))
-p2 <- compareInteractions(chat_object, show.legend = F, group = c("AML", "HC"), measure = "weight")+
+p2 <- compareInteractions(chat_object, show.legend = F, group = c("early", "late"), measure = "weight")+
   scale_fill_manual(values = c("mediumseagreen", "darkorchid"))+#scale_y_continuous(expand = c(0,0))+
   theme(axis.text.x = element_text(size = 14, colour = "black"))+
   theme(axis.title.y = element_text(size = 16, colour = "black"))
@@ -125,6 +129,10 @@ p2 <- compareInteractions(chat_object, show.legend = F, group = c("AML", "HC"), 
 p <- p1+p2
 
 p
+```
+
+```{r}
+cellchat_pathways <- data.frame(pathway = CellChatDB.use$interaction$pathway_name, ligand = CellChatDB.use$interaction$ligand, receptor = CellChatDB.use$interaction$receptor)           # all pathways
 ```
 
 ```{r}
@@ -139,9 +147,13 @@ diff.pathways <- unique(pathways$name)
 p <- ggplot(pathways, aes(x = contribution.scaled, y = name, fill = group))+
   geom_col(position = "fill", width = 0.5)+
   theme_bw()+scale_x_continuous(expand = c(0,0))+geom_vline(xintercept = 0.5, linetype = "dashed", colour = "grey30")+
-  scale_fill_manual(values = c("mediumseagreen", "darkorchid"))+
+  scale_fill_manual(values = c("royalblue", "orange2"))+
   theme(axis.text = element_text(size = 12, colour = "black"))+
   ylab("Pathway")+xlab("Relative signalling strength")
 
 p
+```
+
+```{r}
+early_pathways <- subsetCommunication(early.chat, slot.name="netP")
 ```

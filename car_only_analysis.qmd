@@ -613,6 +613,9 @@ car_subset = cars[~cars.obs["labels"].isin(to_remove)].copy()
 ```{python}
 #car_subset.write_h5ad("2.5_car_no_gd.h5ad")
 car_subset = sc.read_h5ad("2.5_car_no_gd.h5ad")
+car_subset.uns = {} # the entry the cluster can't read
+
+car_subset.write_h5ad("2.5_car_no_gd_cluster.h5ad", compression="gzip")
 ```
 
 ```{python}
@@ -718,4 +721,82 @@ plt.close
 
 ```{python}
 sc.pl.umap(cars, color = ["IL10", "IFNG", "TNF", "IL4R", "TNFSF4", "CTLA4"], layer = "logcounts", legend_fontsize="x-large", size = 10, ncols = 2, frameon = False, cmap = "rocket", return_fig=True)
+```
+
+
+
+# scGPT results
+```{python}
+import json
+import anndata as ad
+
+with open("metagene_programs.json") as f:
+    programs = json.load(f)
+
+a = ad.read_h5ad("carpall_metagene_scores.h5ad")
+
+keep_scores = {f"{k}_SCORE" for k in programs}
+drop = [c for c in a.obs.columns if c.endswith("_SCORE") and c not in keep_scores]
+a.obs = a.obs.drop(columns=drop)
+
+print("Score columns kept:", sum(c.endswith("_SCORE") for c in a.obs.columns))
+```
+
+```{python}
+score_cols = [f"{k}_SCORE" for k in programs if f"{k}_SCORE" in a.obs.columns]
+
+# Mean score per timepoint
+mean_scores = a.obs.groupby("Timepoint_bin", observed=True)[score_cols].mean()
+
+# Keep the 30 programs that vary most across cell types
+top = mean_scores.var().nlargest(30).index
+mat = mean_scores[top]
+
+# Z-score each program so colours compare programs fairly
+z = (mat - mat.mean()) / mat.std()
+
+g = sns.clustermap(z.T, cmap="vlag", center=0, figsize=(8, 10),
+                   xticklabels=True, yticklabels=True)
+g.savefig("scgpt_program_heatmap.png", dpi=150, bbox_inches="tight")
+```
+
+
+```{python}
+print(len(mean_scores))
+print(len(programs))
+```
+
+```{python}
+print(programs["4"])
+print(len(programs["4"]))
+```
+
+```{python}
+gene_list = programs["18"]
+```
+
+```{python}
+import gseapy as gp
+# Meta info about the number of terms (tests) in the databases
+df_database = pd.DataFrame(
+data = [['GO_Biological_Process_2021', 6036],
+['GO_Molecular_Function_2021', 1274],
+['Reactome_2022', 1818]],
+columns = ['dataset', 'term'])
+# Select desired database for query; here use Reactome as an example
+databases = ['GO_Biological_Process_2021']
+m = df_database[df_database['dataset'].isin(databases)]['term'].sum()
+# p-value correction for total number of tests done
+p_thresh = 0.05/m
+# Perform pathway enrichment analysis using the gseapy package in the Reactome database
+df = pd.DataFrame()
+enr_Reactome = gp.enrichr(gene_list=gene_list,
+                          gene_sets=databases,
+                          organism='human', 
+                          outdir='test/enr_Reactome',
+                          cutoff=0.5)
+out = enr_Reactome.results
+out = out[out['P-value'] < p_thresh]
+df = pd.concat([pd.DataFrame(), out], ignore_index=True)
+df
 ```
