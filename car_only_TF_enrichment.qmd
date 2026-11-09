@@ -225,7 +225,7 @@ early_clusters = [
 ]
 
 cars.obs.loc[
-    (cars.obs["lineage_group"] == "Branch") &
+    (cars.obs["lineage_group"] == "Branching") &
     (cars.obs["labels"].isin(early_clusters)),
     "lineage_group"
 ] = "Other"
@@ -239,6 +239,16 @@ cars.obs["lineage_time"] = (
 ```
 
 ```{python}
+plt.close()
+fig=sc.pl.umap(cars, color = "lineage_group",return_fig=True, frameon=False, palette=["darkorchid", "royalblue", "red", "grey"])
+fig.set_size_inches(6, 4)
+print(fig.get_size_inches())
+fig.savefig("car_only/umap_lineage_groups.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+cars.uns = {}
 cars.write_h5ad("4_car_no_gd_psuedotime.h5ad")
 ```
 
