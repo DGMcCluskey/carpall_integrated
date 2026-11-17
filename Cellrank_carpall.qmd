@@ -415,17 +415,52 @@ naive_driver_df_filtered["mean expression"] = (
     cars.var.loc[naive_driver_df_filtered.index, "mean expression"]
 )
 
-df_expr = naive_driver_df_filtered[naive_driver_df_filtered["mean expression"] >= 0.1].copy()
-df_expr["log1p mean expression"] = np.log1p(df_expr["mean expression"])
+naive_df_expr = naive_driver_df_filtered[naive_driver_df_filtered["mean expression"] >= 0.1].copy()
+naive_df_expr["log1p mean expression"] = np.log1p(naive_df_expr["mean expression"])
+```
+
+```{python}
+mask = ~memory_driver_df.index.astype(str).str.contains(pattern, case=False, regex=True)
+memory_driver_df_filtered = memory_driver_df[mask]
+
+# Map onto the driver DataFrame by gene name
+memory_driver_df_filtered["mean expression"] = (
+    cars.var.loc[memory_driver_df_filtered.index, "mean expression"]
+)
+
+memory_df_expr = memory_driver_df_filtered[memory_driver_df_filtered["mean expression"] >= 0.1].copy()
+memory_df_expr["log1p mean expression"] = np.log1p(memory_df_expr["mean expression"])
 ```
 
 ```{python}
 plt.close("all")
 fig, ax = plt.subplots(figsize=(6, 5))
 sc = ax.scatter(
-    x=df_expr["DN T_2_corr"],
-    y=df_expr["EM CD8+ T_3_corr"],
-    c=df_expr["log1p mean expression"],
+    x=naive_df_expr["DN T_2_corr"],
+    y=naive_df_expr["EM CD8+ T_3_corr"],
+    c=naive_df_expr["log1p mean expression"],
+    cmap="magma",
+    s=5,
+    alpha=0.8,
+)
+fig.colorbar(sc, ax=ax, label="log1p(mean expression)")
+
+ax.axhline(y=0, color="red", linewidth=0.8, linestyle="--")  # geom_hline
+ax.axvline(x=0, color="red", linewidth=0.8, linestyle="--")  # geom_vline
+ax.set_xlabel("Correlation with DN T fate")
+ax.set_ylabel("Correlation with EM CD8+ T fate")
+ax.set_title("Driver gene correlations (mean expression >= 0.1)")
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+plt.close("all")
+fig, ax = plt.subplots(figsize=(6, 5))
+sc = ax.scatter(
+    x=memory_df_expr["DN T_2_corr"],
+    y=memory_df_expr["EM CD8+ T_3_corr"],
+    c=memory_df_expr["log1p mean expression"],
     cmap="magma",
     s=5,
     alpha=0.8,
