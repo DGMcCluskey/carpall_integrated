@@ -1,0 +1,444 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{python}
+import cellrank as cr
+import scanpy as sc
+import session_info2
+from cellrank.kernels import RealTimeKernel
+from moscot.problems.time import TemporalProblem
+import scvelo as scv
+import numpy as np
+import matplotlib.pyplot as plt
+
+sc.set_figure_params(frameon=False, dpi=100)
+cr.settings.logging_level = "INFO"
+```
+
+# cellrank using time-course as input
+```{python}
+cars = sc.read("4_car_no_gd_psuedotime.h5ad")
+to_remove = ["Product Mixed T", "Product CD8+ T", "Cycling T"]
+cars = cars[~cars.obs["labels"].isin(to_remove)].copy()
+```
+
+```{python}
+cars.obs["labels"] = cars.obs["labels"].cat.remove_unused_categories()
+```
+
+```{python}
+label_palette = {
+    "CM CD8+ T":"darkred",
+    "Activated CM CD8+ T":"mediumvioletred",
+    "DN T":"springgreen",
+    "Cycling T":"skyblue",
+    "DN/CD8+ T":"forestgreen",
+    "Naive/CM T":"deepskyblue",
+    "Activated Naive/CM T":"blue",
+    "Product CD8+ T":"grey",
+    "GD/CD8+ T":"gold",
+    "EM CD8+ T":"red",
+    "Early EM CD8+ T":"indianred",
+    "Myeloid contamination":"tan",
+    "Product Mixed T":"black",
+    "Exhausted/Late EM CD8+ T":"darkorchid"
+}
+```
+
+```{python}
+time_numeric = {
+    #"M0":0,
+    "M01":1,
+    "M02":2,
+    "M03":3,
+    "M04":4,
+    "M05":5,
+    "M06":6,
+    "M09":9,
+    "M12":12,
+    "M14":14,
+    "M15":15,
+    "M18":18,
+    "M21":21,
+    "M30":30,
+    "M36":36,
+    "M48":48,
+    "M60":60,    
+
+}
+
+cars.obs["timepoint_numeric"] = (
+    cars.obs["Timepoint"]
+    .astype(str)
+    .str.strip()
+    .map(time_numeric)
+    .astype(float)
+)
+print(cars.obs["timepoint_numeric"].dtype)  # float64
+```
+
+```{python}
+sc.pl.umap(cars, color = "timepoint_numeric", cmap = "magma")
+```
+
+```{python}
+cars = cars[
+    cars.obs["timepoint_numeric"].notna()
+].copy()
+```
+
+```{python}
+tp = TemporalProblem(cars)
+```
+
+```{python}
+tp = tp.score_genes_for_marginals(
+    gene_set_proliferation="human", gene_set_apoptosis="human"
+)
+```
+
+```{python}
+sc.pl.embedding(
+    cars, basis="umap", color=["labels", "proliferation", "apoptosis"],
+    wspace=0.5
+)
+```
+
+```{python}
+tp = tp.prepare(time_key="timepoint_numeric")
+```
+
+```{python}
+tp = tp.solve(epsilon=0.05, tau_a=0.95, scale_cost="mean")
+```
+
+```{python}
+tmk = RealTimeKernel.from_moscot(tp)
+```
+
+```{python}
+tmk.compute_transition_matrix(self_transitions="all", conn_weight=0.2, threshold="auto")
+```
+
+```{python}
+tmk.plot_random_walks(
+    max_iter=500,
+    start_ixs={"timepoint_numeric": 1.0},
+    basis="umap",
+    seed=0,
+    dpi=150,
+    size=30,
+)
+```
+
+```{python}
+ax = tmk.plot_single_flow(
+    cluster_key="labels",
+    time_key="timepoint_numeric",
+    cluster="Activated Naive/CM T",
+    min_flow=0.05,
+    xticks_step_size=2,
+    show=False
+)
+
+_ = ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+```
+
+```{python}
+import petsc4py
+import slepc4py
+```
+
+```{python}
+g = cr.estimators.GPCCA(tmk)
+print(g)
+```
+
+```{python}
+g.compute_schur()
+g.plot_spectrum(real_only=True)
+```
+
+```{python}
+g.compute_macrostates(n_states=10, cluster_key="labels")
+g.plot_macrostates(which="all", legend_loc="right", s=100)
+```
+
+```{python}
+g.plot_macrostate_composition(key="labels")
+```
+
+```{python}
+g.plot_coarse_T(annotate=False)
+```
+
+```{python}
+g.set_terminal_states(states=["DN T_3", "EM CD8+ T", "Early EM CD8+ T", "Activated Naive/CM T"])
+g.plot_macrostates(which="terminal",s=50)
+```
+
+```{python}
+g.set_initial_states(states=[ "Naive/CM T"])
+g.plot_macrostates(which="initial", s=50)
+```
+
+```{python}
+plt.close("all")
+```
+
+```{python}
+# write macrostates to AnnData
+cars.obs["macrostates"] = g.macrostates
+cars.uns["macrostates_colors"] = g.macrostates_memberships.colors
+```
+
+```{python}
+g.compute_fate_probabilities(use_petsc=False)
+g.plot_fate_probabilities(same_plot=False)
+```
+
+```{python}
+plt.close("all")
+```
+
+```{python}
+g.plot_fate_probabilities(same_plot=True)
+```
+
+```{python}
+cr.pl.circular_projection(cars, keys=["labels"], legend_loc="right")
+```
+
+
+# cellrank using pseudotime as input
+```{python}
+cars = sc.read("4_car_no_gd_psuedotime.h5ad")
+to_remove = ["Product CD8+ T", "Product Mixed T", "Cycling T"]
+cars = cars[~cars.obs["labels"].isin(to_remove)].copy()
+```
+
+```{python}
+sc.pp.neighbors(cars, n_pcs=15, use_rep="X_pca")
+sc.tl.diffmap(cars)
+```
+
+```{python}
+cars.obsm['X_diffmap'][:, 2].argmin()
+```
+
+```{python}
+root_ixs = 56349
+scv.pl.scatter(
+    cars,
+    basis="diffmap",
+    c=["labels", root_ixs],
+    legend_loc="right",
+    components=["2, 3"],
+    wspace = 0.5
+)
+
+cars.uns["iroot"] = root_ixs
+```
+
+```{python}
+sc.tl.dpt(cars)
+sc.pl.embedding(
+    cars,
+    basis="umap",
+    color=["dpt_pseudotime"],
+    color_map="gnuplot2",
+)
+
+sc.pl.violin(cars, keys = "dpt_pseudotime", groupby="labels", rotation=90, )
+```
+
+```{python}
+pk = cr.kernels.PseudotimeKernel(cars, time_key="dpt_pseudotime")
+pk.compute_transition_matrix()
+
+print(pk)
+```
+
+```{python}
+pk.plot_projection(basis="umap", recompute=True)
+```
+
+```{python}
+g = cr.estimators.GPCCA(pk)
+print(g)
+```
+
+```{python}
+g.compute_schur()
+g.plot_spectrum(real_only=True)
+```
+
+```{python}
+g.compute_macrostates(n_states=12, cluster_key="labels")
+g.plot_macrostates(which="all", legend_loc="right", s=100)
+```
+
+```{python}
+g.plot_macrostate_composition(key="labels", figsize=(7, 4))
+```
+
+```{python}
+g.plot_coarse_T(annotate=False)
+```
+
+```{python}
+g.predict_terminal_states()
+g.plot_macrostates(which="terminal", legend_loc="right", s=100)
+```
+
+```{python}
+g.set_terminal_states(states=["DN T_2", "EM CD8+ T_3", "Exhausted/Late EM CD8+ T", "CM CD8+ T_1"])
+g.plot_macrostates(which="terminal",s=50)
+```
+
+```{python}
+g.set_initial_states(states=["Activated Naive/CM T", "Naive/CM T"])
+g.plot_macrostates(which="initial", s=50)
+```
+
+```{python}
+# write macrostates to AnnData
+cars.obs["macrostates"] = g.macrostates
+cars.uns["macrostates_colors"] = g.macrostates_memberships.colors
+```
+
+```{python}
+g.compute_fate_probabilities(use_petsc=False)
+g.plot_fate_probabilities(same_plot=False)
+```
+
+```{python}
+plt.close("all")
+```
+
+```{python}
+g.plot_fate_probabilities(same_plot=True)
+```
+
+```{python}
+cr.pl.circular_projection(cars, keys=["labels"], legend_loc="right")
+```
+
+```{python}
+dn_df = g.compute_lineage_drivers(
+    lineages=["DN T_2"], cluster_key="labels"
+)
+dn_df.head(10)
+```
+
+```{python}
+cars.obs["fate_probabilities_dnt"] = g.fate_probabilities["DN T_2"].X.flatten()
+
+sc.pl.embedding(
+    cars,
+    basis="umap",
+    color=["fate_probabilities_dnt"] + list(dn_df.index[:8]),
+    color_map="viridis",
+    s=10,
+    ncols=3,
+)
+```
+
+```{python}
+cr.pl.aggregate_fate_probabilities(
+    cars,
+    mode="violin",
+    lineages=["DN T_2"],
+    cluster_key="labels")
+```
+
+```{python}
+cr.pl.aggregate_fate_probabilities(
+    cars,
+    mode="violin",
+    lineages=["EM CD8+ T_3"],
+    cluster_key="labels")
+```
+
+```{python}
+cr.pl.aggregate_fate_probabilities(
+    cars,
+    mode="violin",
+    lineages=["Exhausted/Late EM CD8+ T"],
+    cluster_key="labels")
+```
+
+```{python}
+# compute driver genes
+naive_driver_df = g.compute_lineage_drivers(lineages=["DN T_2", "EM CD8+ T_3", "Exhausted/Late EM CD8+ T"],
+cluster_key="labels", clusters = ["Activated Naive/CM T", "Naive/CM T"])
+
+memory_driver_df = g.compute_lineage_drivers(lineages=["DN T_2", "EM CD8+ T_3", "Exhausted/Late EM CD8+ T"],
+cluster_key="labels", clusters = ["CM CD8+ T", "Activated CM CD8+ T", "Early EM CD8+ T"])
+
+
+# compute mean gene expression across all cells
+cars.var["mean expression"] = np.asarray(cars.X.mean(axis=0)).flatten()
+```
+
+```{python}
+# visualize in a scatter plot
+g.plot_lineage_drivers_correlation(
+    lineage_y="DN T_2",
+    lineage_x="EM CD8+ T_3",
+    adjust_text=True,
+    color="mean expression",
+    #gene_sets = genes_oi,
+    legend_loc="none",
+    figsize=(5, 5),
+    dpi=150,
+    fontsize=9,
+    size=50,
+    cmap= "magma"
+)
+```
+
+```{python}
+import pandas as pd
+
+# Regex matches gene names starting with MT-, RPL, RPS, MRPL, or MRPS (case-insensitive)
+pattern = r"^(?:MT-|M?RP[LS])"
+
+mask = ~naive_driver_df.index.astype(str).str.contains(pattern, case=False, regex=True)
+naive_driver_df_filtered = naive_driver_df[mask]
+
+# Map onto the driver DataFrame by gene name
+naive_driver_df_filtered["mean expression"] = (
+    cars.var.loc[naive_driver_df_filtered.index, "mean expression"]
+)
+
+df_expr = naive_driver_df_filtered[naive_driver_df_filtered["mean expression"] >= 0.1].copy()
+df_expr["log1p mean expression"] = np.log1p(df_expr["mean expression"])
+```
+
+```{python}
+plt.close("all")
+fig, ax = plt.subplots(figsize=(6, 5))
+sc = ax.scatter(
+    x=df_expr["DN T_2_corr"],
+    y=df_expr["EM CD8+ T_3_corr"],
+    c=df_expr["log1p mean expression"],
+    cmap="magma",
+    s=5,
+    alpha=0.8,
+)
+fig.colorbar(sc, ax=ax, label="log1p(mean expression)")
+
+ax.axhline(y=0, color="red", linewidth=0.8, linestyle="--")  # geom_hline
+ax.axvline(x=0, color="red", linewidth=0.8, linestyle="--")  # geom_vline
+ax.set_xlabel("Correlation with DN T fate")
+ax.set_ylabel("Correlation with EM CD8+ T fate")
+ax.set_title("Driver gene correlations (mean expression >= 0.1)")
+plt.tight_layout()
+plt.show()
+```
+
+

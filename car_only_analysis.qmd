@@ -742,6 +742,11 @@ a.obs = a.obs.drop(columns=drop)
 print("Score columns kept:", sum(c.endswith("_SCORE") for c in a.obs.columns))
 ```
 
+# load in latest car object to be able to check expression of interesting genes
+```{python}
+cars = sc.read_h5ad("4_car_no_gd_psuedotime.h5ad")
+```
+
 ```{python}
 score_cols = [f"{k}_SCORE" for k in programs if f"{k}_SCORE" in a.obs.columns]
 
