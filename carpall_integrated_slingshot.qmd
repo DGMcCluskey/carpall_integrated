@@ -1,0 +1,204 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{r}
+library(anndataR)
+library(SingleCellExperiment)
+library(slingshot)
+library(dplyr)
+library(igraph)
+library(ggplot2)
+library(viridis)
+library(tidyr)
+```
+
+```{r}
+adata <- read_h5ad("carpall_scvi_integrated_annotated.h5ad", as = "SingleCellExperiment")
+adata
+exclude <- c("Early: gdT", "Product")
+keep <- !(as.character(adata$labels) %in% exclude)
+adata <- adata[, keep]
+adata$labels <- droplevels(adata$labels)
+
+table(adata$labels)
+```
+
+```{r}
+dimred <- reducedDim(adata, "X_umap")
+clustering <- adata$labels
+counts <- assay(adata, "counts")
+```
+
+```{r}
+set.seed(61)
+sce <- SingleCellExperiment(
+  assays = list(counts = counts)
+)
+
+reducedDim(sce, "UMAP") <- dimred
+colData(sce)$labels <- clustering
+
+sce <- slingshot(
+  sce,
+  clusterLabels = "labels",
+  reducedDim = "UMAP",
+  start.clus = c("Early: CD8 TCM"),
+  allow.breaks=T,
+  omega=T,
+  stretch=1,
+  approx_points=300
+)
+```
+
+### summary of results
+```{r}
+SlingshotDataSet(sce)
+```
+
+### save object to not have to run again
+```{r}
+saveRDS(sce, file = "carpall_integrated_slingshot_object.rds")
+#sce <- readRDS("carpall_integrated_slingshot_object.rds")
+```
+
+```{r}
+mst <- slingMST(sce)
+
+nodes <- data.frame(
+  cluster = V(mst)$name,
+  do.call(rbind, vertex_attr(mst, "coordinates"))
+)
+
+colnames(nodes)[2:3] <- c("UMAP_1", "UMAP_2")
+
+nodes
+```
+
+```{r}
+edge_list <- as.data.frame(get.edgelist(mst))
+
+colnames(edge_list) <- c("from", "to")
+```
+
+```{r}
+edges <- edge_list %>%
+  left_join(
+    nodes %>% dplyr::rename(x = UMAP_1, y = UMAP_2),
+    by = c("from" = "cluster")
+  ) %>%
+  left_join(
+    nodes %>% dplyr::rename(xend = UMAP_1, yend = UMAP_2),
+    by = c("to" = "cluster")
+  )
+
+edges
+```
+
+```{r}
+cell_df <- data.frame(
+  UMAP_1 = reducedDim(sce, "UMAP")[,1],
+  UMAP_2 = reducedDim(sce, "UMAP")[,2],
+  labels = sce$labels
+)
+
+p <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+  geom_point(aes(colour = labels), size = 0.3) +
+  geom_segment(
+    data = edges,
+    aes(
+      x = x,
+      y = y,
+      xend = xend,
+      yend = yend
+    ),
+    inherit.aes = FALSE,
+    linewidth = 1.2,
+    colour = "black"
+  ) +
+    geom_point(
+    data = nodes,
+    aes(UMAP_1, UMAP_2),
+    inherit.aes = FALSE,
+    size = 4,
+    colour = "black"
+  ) +
+  theme_classic()
+p
+ggsave(plot=p, filename = "carpall_inetgrated_pseudotime_MST_umap.png", dpi = 300, height = 6, width = 8)
+```
+
+```{r}
+curves <- slingCurves(sce)
+curves
+```
+
+```{r}
+curve_dfs <- lapply(seq_along(curves), function(i) {
+
+  crv <- curves[[i]]
+
+  data.frame(
+    UMAP_1 = crv$s[,1],
+    UMAP_2 = crv$s[,2],
+    lineage = paste0("Lineage_", i),
+    order = seq_len(nrow(crv$s))
+  )
+})
+
+curve_df <- do.call(rbind, curve_dfs)
+curve_df$lineage <- gsub("_", "", curve_df$lineage)
+#curve_df <- filter(curve_df, lineage %in% c("Lineage1", "Lineage2", "Lineage3"))
+```
+
+
+```{r}
+lin <- slingLineages(sce)
+
+terminal_cluster <- sapply(lin, tail, 1)
+```
+
+```{r}
+p <- ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+
+  # --- cells (cluster colour scale 1)
+  geom_point(
+    aes(colour = labels),
+    size = 1, alpha = 0.8, shape = 20
+  ) +
+
+  ggnewscale::new_scale_colour() +
+
+  # --- lineages (second independent colour scale)
+  geom_path(
+    data = curve_df,
+    aes(
+      UMAP_1,
+      UMAP_2,
+      group = lineage
+    ),
+    colour="grey30",
+    linewidth = 1,
+    arrow = arrow(type = "closed", length = unit(0.15, "inches"))
+  ) +
+  theme_classic()
+p
+ggsave(plot=p, filename = "carpall_integrated_pseuodtime_lineages_umap.png", dpi = 300, height = 6, width = 8)
+```
+
+### add lineage info to cell_df to be able to plot on umap
+```{r}
+pt <- slingPseudotime(sce)
+avg_pt <- rowMeans(pt, na.rm = TRUE)
+avg_df <- data.frame(
+  cell = names(avg_pt),
+  avg_pseudotime = as.numeric(avg_pt)
+)
+
+write.csv(avg_df, file = "carpall_integrated_slingshot_average_pseudotime.csv", row.names = FALSE)
+```
+
+
+
+

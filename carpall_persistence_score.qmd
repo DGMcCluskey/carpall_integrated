@@ -1,0 +1,265 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+# generating persistence score to label umap by and use for fate prediction
+
+```{python}
+import scanpy as sc
+import numpy as np
+import anndata as ad
+import pandas as pd
+import os
+import seaborn as sns
+from seaborn import objects as so
+import matplotlib.pyplot as plt
+import scvi
+import harmonypy as hm
+from pyclustree import clustree
+```
+
+
+# first just on carpall cohort 1
+```{python}
+cars = sc.read_h5ad("2_car_only_annotated_v3.h5ad")
+```
+
+```{python}
+sc.pl.umap(cars, color = "labels")
+```
+
+```{python}
+sc.tl.rank_genes_groups(
+    cars, groupby="Timepoint_bin", method="wilcoxon", key_added="dea_timepoint"
+)
+
+sc.tl.filter_rank_genes_groups(
+    cars,
+    min_in_group_fraction=0.25,
+    max_out_group_fraction=0.5,
+    key="dea_timepoint",
+    key_added="dea_timepoint_filtered",
+)
+
+degs = sc.get.rank_genes_groups_df(
+    cars,
+    group=None,
+    key="dea_timepoint_filtered"
+)
+degs = degs.dropna(subset=["names"])
+degs.to_csv("cohort1_timepoint_degs.csv", index=False)
+```
+
+```{python}
+late_degs = degs[degs["group"] == "Late"]
+late_degs = late_degs[late_degs["logfoldchanges"] >1.49]
+```
+
+```{python}
+persistence_score = list(late_degs.names)
+```
+
+```{python}
+sc.tl.score_genes(cars, gene_list = persistence_score, score_name="persistence_score")
+```
+
+```{python}
+sc.pl.umap(cars, color = "persistence_score", cmap = "YlGnBu")
+```
+
+```{python}
+sc.pl.violin(cars, keys = "persistence_score", groupby = "Timepoint_bin", rotation = 90, size=0)
+```
+
+```{python}
+scores = cars.obs["persistence_score"]
+cuts = scores.quantile([0.2, 0.4, 0.6, 0.8]).values
+cars.obs["persistence_quintile"] = pd.cut(
+    scores,
+    bins=[-np.inf, *cuts, np.inf],
+    labels=["Q1_bottom", "Q2", "Q3", "Q4", "Q5_top"],
+)
+
+print(cars.obs["persistence_quintile"].value_counts())
+```
+
+```{python}
+scores = cars.obs["persistence_score"]
+
+# fixed score cutoffs, so group sizes depend on the data
+bins = [-np.inf, 0.05, 0.35, 0.7, np.inf]
+labels = ["Negative", "Low", "Medium", "High"]
+
+cars.obs["persistence_group"] = pd.cut(scores, bins=bins, labels=labels)
+print(cars.obs["persistence_group"].value_counts())
+```
+
+```{python}
+plt.close("all")
+sc.pl.umap(cars, color="persistence_group", palette = "RdBu")
+```
+
+```{python}
+scores = cars.obs["persistence_score"]
+
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.hist(scores, bins=100, color="grey", edgecolor="none")
+
+for cutoff in [0.05, 0.35, 0.7]:
+    ax.axvline(cutoff, color="red", linestyle="--", linewidth=1)
+
+ax.set_xlabel("Persistence score")
+ax.set_ylabel("Number of cells")
+ax.set_title("Persistence score distribution")
+plt.show()
+```
+
+```{python}
+counts = pd.crosstab(
+    cars.obs["Timepoint_bin"],
+    cars.obs["persistence_group"],
+)
+print(counts)
+
+ax = counts.plot(kind="bar", figsize=(8, 5), edgecolor="none", colormap = "RdBu")
+ax.set_xlabel("Timepoint")
+ax.set_ylabel("Number of cells")
+ax.set_title("Cells per persistence group at each timepoint")
+ax.legend(title="Persistence group")
+plt.xticks(rotation=0)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+props = pd.crosstab(
+    cars.obs["Timepoint_bin"],
+    cars.obs["persistence_group"],
+    normalize="index",
+)
+ax = props.plot(kind="bar", stacked=True, figsize=(8, 5), edgecolor="none", colormap = "RdBu")
+ax.set_ylabel("Proportion of cells")
+ax.set_xlabel("Timepoint")
+ax.legend(title="Persistence group", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.xticks(rotation=0)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+cohort1_persistence_signature = late_degs
+```
+
+```{python}
+cars = cars[cars.obs["labels"] != "GD/CD8+ T"].copy()
+```
+
+# then look on integrated dataset of both cohorts
+```{python}
+integrated = sc.read("carpall_full_allgenes_with_scanvi.h5ad")
+```
+
+```{python}
+sc.pl.umap(integrated, color = "study")
+```
+
+```{python}
+persistence_score = list(cohort1_persistence_signature.names)
+```
+
+```{python}
+sc.tl.score_genes(integrated, gene_list = persistence_score, score_name="persistence_score")
+```
+
+```{python}
+sc.pl.umap(integrated, color = "persistence_score", cmap = "magma")
+```
+
+```{python}
+sc.pl.violin(integrated, keys = "persistence_score", groupby = "Timepoint_bin", rotation = 90, size=0)
+```
+
+```{python}
+scores = integrated.obs["persistence_score"]
+cuts = scores.quantile([0.2, 0.4, 0.6, 0.8]).values
+integrated.obs["persistence_quintile"] = pd.cut(
+    scores,
+    bins=[-np.inf, *cuts, np.inf],
+    labels=["Q1_bottom", "Q2", "Q3", "Q4", "Q5_top"],
+)
+
+print(integrated.obs["persistence_quintile"].value_counts())
+```
+
+```{python}
+scores = integrated.obs["persistence_score"]
+
+# fixed score cutoffs, so group sizes depend on the data
+bins = [-np.inf, 0.0, 0.3, 0.7, np.inf]
+labels = ["Negative", "Low", "Medium", "High"]
+
+integrated.obs["persistence_group"] = pd.cut(scores, bins=bins, labels=labels)
+print(integrated.obs["persistence_group"].value_counts())
+```
+
+```{python}
+plt.close("all")
+sc.pl.umap(integrated, color="persistence_group", palette = "rocket")
+```
+
+```{python}
+scores = integrated.obs["persistence_score"]
+
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.hist(scores, bins=100, color="grey", edgecolor="none")
+
+for cutoff in [0.0, 0.3, 0.7]:
+    ax.axvline(cutoff, color="red", linestyle="--", linewidth=1)
+
+ax.set_xlabel("Persistence score")
+ax.set_ylabel("Number of cells")
+ax.set_title("Persistence score distribution")
+plt.show()
+```
+
+```{python}
+counts = pd.crosstab(
+    integrated.obs["Timepoint_bin"],
+    integrated.obs["persistence_group"],
+)
+print(counts)
+
+ax = counts.plot(kind="bar", figsize=(8, 5), edgecolor="none")
+ax.set_xlabel("Timepoint")
+ax.set_ylabel("Number of cells")
+ax.set_title("Cells per persistence group at each timepoint")
+ax.legend(title="Persistence group")
+plt.xticks(rotation=0)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+props = pd.crosstab(
+    integrated.obs["Timepoint_bin"],
+    integrated.obs["persistence_group"],
+    normalize="index",
+)
+ax = props.plot(kind="bar", stacked=True, figsize=(8, 5), edgecolor="none")
+ax.set_ylabel("Proportion of cells")
+ax.set_xlabel("Timepoint")
+ax.legend(title="Persistence group", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.xticks(rotation=0)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+sc.pl.violin(integrated, keys = ["log1p_total_counts", "log1p_n_genes_by_counts", "pct_counts_mt"], groupby="study", size = 0)
+```
+
+```{python}
+sc.pl.violin(cars, keys = "CAT_scFv", groupby="persistence_group", size = 0)
+```

@@ -1,0 +1,31 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{python}
+import numpy as np
+from matplotlib import pyplot as plt
+
+from pyslingshot import Slingshot
+import scanpy as sc
+```
+
+```{python}
+carpall = sc.read("carpall_scvi_integrated.h5ad")
+sc.pl.umap(carpall, color="leiden_res_0.7", legend_loc="on data")
+to_remove = ["18", "19", "20", "8"]
+carpall = carpall[~carpall.obs["leiden_res_0.7"].isin(to_remove)].copy()
+sc.pl.umap(carpall, color="leiden_res_0.7")
+```
+
+```{python}
+fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 10))
+custom_xlim = (-12, 12)
+custom_ylim = (-12, 12)
+# plt.setp(axes, xlim=custom_xlim, ylim=custom_ylim)
+start_node = list(carpall.obs["leiden_res_0.7"].cat.categories).index("0")
+slingshot = Slingshot(carpall, celltype_key="leiden_res_0.7", obsm_key="X_umap", start_node=start_node, is_debugging="verbose")
+
+slingshot.fit(num_epochs=1, debug_axes=axes)
+```

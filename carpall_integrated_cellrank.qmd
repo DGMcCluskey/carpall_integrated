@@ -1,0 +1,180 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{python}
+import cellrank as cr
+import scanpy as sc
+import session_info2
+from cellrank.kernels import RealTimeKernel
+from moscot.problems.time import TemporalProblem
+import scvelo as scv
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+sc.set_figure_params(frameon=False, dpi=100)
+cr.settings.logging_level = "INFO"
+```
+
+```{python}
+carpall = sc.read("carpall_scvi_integrated_annotated.h5ad")
+to_remove = ["Early: gdT", "Product"]
+carpall = carpall[~carpall.obs["labels"].isin(to_remove)].copy()
+pt_df = pd.read_csv("carpall_integrated_slingshot_average_pseudotime.csv", index_col="cell")
+carpall.obs["avg_pseudotime"] = pt_df["avg_pseudotime"].reindex(carpall.obs_names)
+print(carpall.obs["avg_pseudotime"].isna().sum(), "cells without a value")
+sc.pl.umap(carpall, color="avg_pseudotime", legend_loc="on data")
+carpall
+```
+
+
+```{python}
+pk = cr.kernels.PseudotimeKernel(carpall, time_key="avg_pseudotime")
+pk.compute_transition_matrix(threshold_scheme="soft")
+```
+
+```{python}
+pk.plot_projection(basis="umap", recompute=True)
+```
+
+```{python}
+g = cr.estimators.GPCCA(pk)
+print(g)
+```
+
+```{python}
+g.compute_schur()
+g.plot_spectrum(real_only=True)
+```
+
+```{python}
+g.compute_macrostates(n_states=7, cluster_key="labels")
+g.plot_macrostates(which="all", legend_loc="right", s=50)
+```
+
+```{python}
+g.plot_macrostate_composition(key="labels", figsize=(7, 4))
+```
+
+```{python}
+g.plot_coarse_T(annotate=False)
+```
+
+```{python}
+g.predict_terminal_states()
+g.plot_macrostates(which="terminal", legend_loc="right", s=50)
+```
+
+```{python}
+g.set_initial_states(states=["Early: CD8 TCM_1"], allow_overlap = True)
+g.plot_macrostates(which="initial", s=50)
+```
+
+```{python}
+# write macrostates to AnnData
+carpall.obs["macrostates"] = g.macrostates
+carpall.uns["macrostates_colors"] = g.macrostates_memberships.colors
+```
+
+```{python}
+g.compute_fate_probabilities(use_petsc=False)
+g.plot_fate_probabilities(same_plot=False)
+```
+
+```{python}
+plt.close("all")
+```
+
+```{python}
+g.plot_fate_probabilities(same_plot=True)
+```
+
+```{python}
+cr.pl.circular_projection(carpall, keys=["labels"], legend_loc="right")
+```
+
+```{python}
+cr.pl.aggregate_fate_probabilities(
+    carpall,
+    mode="violin",
+    lineages=["Late: DN T_1"],
+    cluster_key="labels")
+```
+
+```{python}
+cr.pl.aggregate_fate_probabilities(
+    carpall,
+    mode="violin",
+    lineages=["Mid: CD8 TEM"],
+    cluster_key="labels")
+```
+
+```{python}
+# compute driver genes
+early_driver_df = g.compute_lineage_drivers(lineages=["Late: DN T_1", "Mid: CD8 TEM", "Early: CD8 TCM_1"],
+cluster_key="labels", clusters = ["Early: CD8 TCM", "Early: CD8 TEM"])
+
+
+# compute mean gene expression across all cells
+carpall.var["mean expression"] = np.asarray(carpall.X.mean(axis=0)).flatten()
+```
+
+```{python}
+# visualize in a scatter plot
+g.plot_lineage_drivers_correlation(
+    lineage_y="Late: DN T_1",
+    lineage_x="Mid: CD8 TEM",
+    adjust_text=True,
+    color="mean expression",
+    #gene_sets = genes_oi,
+    legend_loc="none",
+    figsize=(5, 5),
+    dpi=150,
+    fontsize=9,
+    size=50,
+    cmap= "magma"
+)
+```
+
+```{python}
+import pandas as pd
+
+# Regex matches gene names starting with MT-, RPL, RPS, MRPL, or MRPS (case-insensitive)
+pattern = r"^(?:MT-|M?RP[LS])"
+
+mask = ~early_driver_df.index.astype(str).str.contains(pattern, case=False, regex=True)
+early_driver_df_filtered = early_driver_df[mask]
+
+# Map onto the driver DataFrame by gene name
+early_driver_df_filtered["mean expression"] = (
+    carpall.var.loc[early_driver_df_filtered.index, "mean expression"]
+)
+
+early_df_expr = early_driver_df_filtered[early_driver_df_filtered["mean expression"] >= 0.1].copy()
+early_df_expr["log1p mean expression"] = np.log1p(early_df_expr["mean expression"])
+```
+
+```{python}
+plt.close("all")
+fig, ax = plt.subplots(figsize=(6, 5))
+sc = ax.scatter(
+    x=early_df_expr["Late: DN T_1_corr"],
+    y=early_df_expr["Mid: CD8 TEM_corr"],
+    c=early_df_expr["log1p mean expression"],
+    cmap="magma",
+    s=5,
+    alpha=0.8,
+)
+fig.colorbar(sc, ax=ax, label="log1p(mean expression)")
+
+ax.axhline(y=0, color="red", linewidth=0.8, linestyle="--")  # geom_hline
+ax.axvline(x=0, color="red", linewidth=0.8, linestyle="--")  # geom_vline
+ax.set_xlabel("Correlation with DN T fate")
+ax.set_ylabel("Correlation with EM CD8+ T fate")
+ax.set_title("Driver gene correlations (mean expression >= 0.1)")
+plt.tight_layout()
+plt.show()
+```

@@ -1,0 +1,874 @@
+---
+title: "Untitled"
+format: html
+---
+
+
+```{python}
+import scanpy as sc
+import numpy as np
+import anndata as ad
+import pandas as pd
+import os
+import seaborn as sns
+from seaborn import objects as so
+import matplotlib.pyplot as plt
+import scvi
+import harmonypy as hm
+from pyclustree import clustree
+```
+
+# load both datasets in - these have had an initial analysis (filtering and doublet removal etc) and CAR+ cells selected based on flow sorting group and >0 epxression of transgene
+# here will be certain of this by loading in and filtering on transgene and checking
+```{python}
+carpall_one = sc.read("cohort_1_car_only.h5ad")
+carpall_three = sc.read("3_carpallcohort3_clustered.h5ad")
+```
+
+```{python}
+gene = np.asarray(carpall_one[:, "CAT_scFv"].X.toarray()
+).ravel()
+carpall_one = carpall_one[gene > 0].copy()
+sc.pl.scatter(carpall_one, x = "CAT_scFv", y = "CD3D")
+```
+
+```{python}
+cd19 = np.asarray(carpall_three[:, "CAR_CD19_variable_region"].X.toarray()
+).ravel()
+cd22 = np.asarray(carpall_three[:, "CAR_CD22_variable_region"].X.toarray()
+).ravel()
+carpall_three = carpall_three[(cd19 > 0) & (cd22 == 0)].copy()
+sc.pl.scatter(carpall_three, x = "CAR_CD19_variable_region", y = "CAR_CD22_variable_region")
+```
+
+# Add timepoint bin column to cohort 3 and remove the healthy controls
+```{python}
+#and remove the healthies (their timpeoint is NA)
+carpall_three.obs["Timepoint_bin"] = carpall_three.obs["Timepoint"]
+
+carpall_three = carpall_three[
+    carpall_three.obs["Timepoint_bin"].isin(["d14", "d150", "Product"])
+].copy()
+```
+
+```{python}
+rename = {
+    "CAR_CD19_variable_region": "CD19_CAR",   # query name
+    "CAT_scFv": "CD19_CAR",   # query name
+    # add the matching reference names, e.g. "CD19CAR": "CD19_CAR"
+}
+carpall_one.var_names = [rename.get(g, g) for g in carpall_one.var_names]
+carpall_three.var_names = [rename.get(g, g) for g in carpall_three.var_names]
+
+common_genes = carpall_one.var_names.intersection(carpall_three.var_names)
+carpall = ad.concat(
+    [carpall_one, carpall_three],
+    label="study",
+    keys=["carpall_one", "carpall_three"],
+    join="inner"
+)
+```
+
+# perform basic normalisation and hvg identification for scvi preparation
+```{python}
+sc.pp.normalize_total(carpall, target_sum=1e4)
+sc.pp.log1p(carpall)
+```
+
+```{python}
+plt.figure()
+sns.histplot(
+        carpall.layers['counts'].sum(1), bins=500, kde=False
+    )
+plt.show()
+
+plt.figure()
+sns.histplot(
+        carpall.layers['logcounts'].sum(1), bins=500, kde=False
+    )
+plt.show()
+```
+
+```{python}
+carpall.obs["sample_id"] = (
+    carpall.obs["Patient"].astype(str) + "_" +
+    carpall.obs["Timepoint_bin"].astype(str)
+)
+
+carpall.obs["sample_id"].value_counts()
+```
+
+```{python}
+carpall_allgenes = carpall.copy()  # keep full dimension safe
+sc.pp.highly_variable_genes(
+    carpall,
+    n_top_genes=2000,
+    flavor="seurat_v3",
+    layer="counts",
+    subset=False,
+    batch_key="study",  # Change depending on the batch key for your dataset
+)
+```
+
+```{python}
+carpall_hvg = carpall[:, carpall.var["highly_variable"]].copy()
+```
+
+```{python}
+sc.pl.violin(
+    carpall_hvg,
+    keys=["pct_counts_mt", "total_counts", "n_genes_by_counts"],
+    groupby="study",
+    size=0,
+    multi_panel=True,
+    show=False
+)
+fig = plt.gcf()
+fig.set_size_inches(12, 4)  # width, height in inches
+fig.savefig("cohorts_mito_counts_comparison.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+hue_order = ["Product", "d14", "Early", "d150", "Mid", "Late"]
+
+counts = (
+    carpall.obs
+    .groupby(["Patient", "Timepoint_bin"], observed=True)
+    .size()
+    .reset_index(name="n_cells")
+)
+
+fig, ax = plt.subplots(figsize=(10, 5))
+sns.barplot(data=counts, y="Patient", x="n_cells", hue="Timepoint_bin",
+            hue_order=hue_order, dodge=True, ax=ax, palette="RdBu", edgecolor = "black")
+
+ax.set_ylabel("Patient")
+ax.set_xlabel("Number of cells")
+ax.set_title("Cells per patient and timepoint")
+ax.legend(title="Timepoint")
+plt.tight_layout()
+plt.savefig("cells_per_patient.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+scvi.model.SCVI.setup_anndata(
+    carpall_hvg,
+    layer="counts",
+    batch_key="study",
+    continuous_covariate_keys = ["pct_counts_mt", "total_counts"]
+)
+```
+
+```{python}
+model = scvi.model.SCVI(carpall_hvg, n_layers=2, n_latent=30, gene_likelihood="nb")
+```
+
+```{python}
+model.train()
+```
+
+```{python}
+model.history["elbo_train"].plot()
+```
+
+```{python}
+SCVI_LATENT_KEY = "X_scVI"
+carpall_hvg.obsm[SCVI_LATENT_KEY] = model.get_latent_representation()
+```
+
+```{python}
+model.save("scvi_model/", overwrite=True)
+```
+
+```{python}
+# obs order is preserved from the shared full_int, so this direct assignment is safe
+carpall.obsm["X_scVI"] = carpall_hvg.obsm["X_scVI"]
+
+sc.pp.neighbors(carpall, use_rep="X_scVI")
+sc.tl.umap(carpall)
+
+for res in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+    sc.tl.leiden(
+        carpall,
+        key_added=f"leiden_res_{res}",
+        resolution=res,
+        flavor="igraph",
+        n_iterations=2,
+        directed=False,
+)
+```
+
+
+
+```{python}
+plt.close("all")
+sc.pl.umap(
+    carpall,
+    color=["study", "Patient", "Timepoint_bin"],
+    frameon=False,
+    ncols=1,
+    show=False,
+)
+fig = plt.gcf()
+fig.set_size_inches(6, 10)  # width, height in inches
+fig.savefig("integrated_umaps.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+#carpall.write_h5ad("carpall_scvi_integrated.h5ad")
+#carpall = sc.read("carpall_scvi_integrated.h5ad")
+```
+
+```{python}
+plt.close("all")
+fig=sc.pl.umap(carpall, color = ["CD19_CAR", "CD3D", "CD8A", "CD4", "TRDC", "MKI67", "TCF7", "CCR7", "GZMK"], frameon=False,ncols=3, show=False,
+cmap="rocket_r")
+fig = plt.gcf()
+fig.set_size_inches(14, 10)  # width, height in inches
+fig.savefig("integrated_umaps_key_genes.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+timepoint = {
+    "Product": "Product",
+    "d14" : "Early",
+    "d150": "Mid",
+    "Early": "Early",
+    "Mid": "Mid",
+    "Late" : "Late"
+}
+carpall.obs["time"] = (
+    carpall.obs["Timepoint_bin"]
+    .map(timepoint)
+    .astype("category")
+)
+sc.tl.dendrogram(carpall, groupby="time")
+```
+
+```{python}
+sc.tl.embedding_density(carpall, groupby="time")
+order = ["Product", "Early", "Mid", "Late"]
+
+carpall.obs["time"] = pd.Categorical(
+    carpall.obs["time"],
+    categories=order,
+    ordered=True,
+)
+plt.close("all")
+fig = sc.pl.embedding_density(carpall, groupby="time", frameon=False, color_map = "rocket_r", return_fig=True, fg_dotsize=10, bg_dotsize=101)
+fig.set_size_inches(10, 2)
+print(fig.get_size_inches())
+fig.savefig("umap_density.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+import pandas as pd
+
+s_genes = ["MCM5", "PCNA", "TYMS", "FEN1", "MCM2", "MCM4", "RRM1", "UNG",
+           "GINS2", "MCM6", "CDCA7", "DTL", "PRIM1", "UHRF1", "MLF1IP",
+           "HELLS", "RFC2", "RPA2", "NASP", "RAD51AP1", "GMNN", "WDR76",
+           "SLBP", "CCNE2", "UBR7", "POLD3", "MSH2", "ATAD2", "RAD51",
+           "RRM2", "CDC45", "CDC6", "EXO1", "TIPIN", "DSCC1", "BLM",
+           "CASP8AP2", "USP1", "CLSPN", "POLA1", "CHAF1B", "BRIP1", "E2F8"]
+
+g2m_genes = ["HMGB2", "CDK1", "NUSAP1", "UBE2C", "BIRC5", "TPX2", "TOP2A",
+             "NDC80", "CKS2", "NUF2", "CKS1B", "MKI67", "TMPO", "CENPF",
+             "TACC3", "FAM64A", "SMC4", "CCNB2", "CKAP2L", "CKAP2", "AURKB",
+             "BUB1", "KIF11", "ANP32E", "TUBB4B", "GTSE1", "KIF20B", "HJURP",
+             "CDCA3", "HN1", "CDC20", "TTK", "CDC25C", "KIF2C", "RANGAP1",
+             "NCAPD2", "DLGAP5", "CDCA2", "CDCA8", "ECT2", "KIF23", "HMMR",
+             "AURKA", "PSRC1", "ANLN", "LBR", "CKAP5", "CENPE", "CTCF",
+             "NEK2", "G2E3", "GAS2L3", "CBX5", "CENPA"]
+
+# keep only genes present in your data
+s_genes = [g for g in s_genes if g in carpall.var_names]
+g2m_genes = [g for g in g2m_genes if g in carpall.var_names]
+
+sc.tl.score_genes_cell_cycle(carpall, s_genes=s_genes, g2m_genes=g2m_genes)
+print(carpall.obs["phase"].value_counts())
+```
+
+```{python}
+sc.pl.umap(
+    carpall,
+    color=["phase", "pct_counts_mt"],
+    frameon=False,
+    ncols=1,
+)
+```
+
+```{python}
+sc.tl.rank_genes_groups(
+    carpall, groupby="Timepoint_bin", method="wilcoxon", key_added="dea_timepoint"
+)
+
+sc.tl.filter_rank_genes_groups(
+    carpall,
+    min_in_group_fraction=0.25,
+    max_out_group_fraction=0.5,
+    key="dea_timepoint",
+    key_added="dea_timepoint_filtered",
+)
+
+degs = sc.get.rank_genes_groups_df(
+    carpall,
+    group=None,
+    key="dea_timepoint_filtered"
+)
+degs = degs.dropna(subset=["names"])
+degs.to_csv("integrated_timepoint_degs.csv", index=False)
+```
+
+```{python}
+late_degs = degs[degs["group"] == "Late"]
+late_degs = late_degs[late_degs["logfoldchanges"] >1.49]
+```
+
+```{python}
+persistence_score = list(late_degs.names)
+```
+
+```{python}
+sc.tl.score_genes(carpall, gene_list = persistence_score, score_name="persistence_score")
+```
+
+```{python}
+sc.pl.umap(carpall, color = "persistence_score", cmap = "plasma_r", show=False, frameon=False)
+fig = plt.gcf()
+fig.set_size_inches(6, 4)  # width, height in inches
+fig.savefig("umap+persistence_score.png", dpi=300, bbox_inches="tight")
+plt.show()
+plt.close
+```
+
+```{python}
+order = ["Product", "d14", "Early", "d150", "Mid", "Late"]
+
+carpall.obs["Timepoint_bin"] = pd.Categorical(
+    carpall.obs["Timepoint_bin"],
+    categories=order,
+    ordered=True,
+)
+```
+
+```{python}
+sc.pl.violin(carpall, keys = "persistence_score", groupby = "Timepoint_bin", rotation = 90, size=0, palette = "RdBu", show=False)
+fig = plt.gcf()
+fig.set_size_inches(8, 4)  # width, height in inches
+fig.savefig("persistence_score_time_violins.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+sample_means = (
+    carpall.obs
+    .groupby(["sample_id", "Patient", "Timepoint_bin", "study"], observed=True)
+    .agg(
+        mean_score=("persistence_score", "mean"),
+        median_score=("persistence_score", "median"),
+        n_cells=("persistence_score", "size"),
+    )
+    .reset_index()
+)
+
+print(sample_means.sort_values(["Patient", "Timepoint_bin"]))
+```
+
+```{python}
+sample_means_all = (
+    carpall.obs
+    .groupby(["sample_id", "Patient", "Timepoint_bin", "study"], observed=True)
+    .agg(
+        mean_score=("persistence_score", "mean"),
+        median_score=("persistence_score", "median"),
+        n_cells=("persistence_score", "size"),
+    )
+    .reset_index()
+)
+
+min_cells = 50
+sample_means = sample_means_all[sample_means_all["n_cells"] >= min_cells].copy()
+print(sample_means_all.loc[sample_means_all["n_cells"] < min_cells, ["sample_id", "n_cells"]])
+```
+
+```{python}
+order = ["Product", "d14", "Early", "d150", "Mid", "Late"]
+sample_means["Timepoint_bin"] = pd.Categorical(
+    sample_means["Timepoint_bin"], categories=order, ordered=True
+)
+plt.close("all")
+fig, ax = plt.subplots(figsize=(6, 4))
+sns.boxplot(data=sample_means, x="Timepoint_bin", y="mean_score",
+            color="white", fliersize=0, ax=ax, hue="Timepoint_bin", palette="RdBu")
+sns.stripplot(data=sample_means, x="Timepoint_bin", y="mean_score",
+              color="black", size=7, ax=ax)
+ax.set_ylabel("Mean persistence score per sample")
+ax.set_xlabel("Timepoint")
+ax.legend(title="Patient", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.tight_layout()
+plt.savefig("persistence_per_sample.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+sc.pl.rank_genes_groups_heatmap(
+    carpall,
+    groupby="Timepoint_bin",
+    key="dea_timepoint_filtered",
+    standard_scale = "var",
+    cmap="rocket_r",
+    var_names=persistence_score,
+    show=False
+)
+fig = plt.gcf()
+fig.set_size_inches(8, 8)  # width, height in inches
+fig.savefig("persistence_score_time_heatmap.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+for key in ["dea_timepoint", "dea_timepoint_filtered"]:
+    if key in carpall.uns:
+        del carpall.uns[key]
+
+#carpall.write_h5ad("carpall_scvi_integrated.h5ad")
+carpall = sc.read("carpall_scvi_integrated.h5ad")
+```
+
+```{python}
+sc.pl.umap(carpall, color = ["leiden_res_0.4", "leiden_res_0.5", "leiden_res_0.6", "leiden_res_0.7"], ncols=2, show=False, wspace=0.5)
+fig = plt.gcf()
+fig.set_size_inches(10, 6)  # width, height in inches
+fig.savefig("umap_leiden_resolutions_.png", dpi=300, bbox_inches="tight")
+plt.show()
+plt.close
+```
+
+```{python}
+time_numeric = {
+    "M0":0,
+    "Product":0,
+    "d14":0.5,
+    "M01":1,
+    "M02":2,
+    "M03":3,
+    "M04":4,
+    "M05":5,
+    "d150":5,
+    "M06":6,
+    "M09":9,
+    "M12":12,
+    "M14":14,
+    "M15":15,
+    "M18":18,
+    "M21":21,
+    "M30":30,
+    "M36":36,
+    "M48":48,
+    "M60":60,    
+
+}
+
+carpall.obs["timepoint_numeric"] = (
+    carpall.obs["Timepoint"]
+    .astype(str)
+    .str.strip()
+    .map(time_numeric)
+    .astype(float)
+)
+print(carpall.obs["timepoint_numeric"].dtype)  # float64
+```
+
+```{python}
+sample_means_all = (
+    carpall.obs
+    .groupby(["Patient", "timepoint_numeric", "study"], observed=True)
+    .agg(
+        mean_score=("persistence_score", "mean"),
+        median_score=("persistence_score", "median"),
+        n_cells=("persistence_score", "size"),
+    )
+    .reset_index()
+)
+sample_means = sample_means_all
+```
+
+```{python}
+plt.close("all")
+fig, ax = plt.subplots(figsize=(6, 4))
+sns.scatterplot(sample_means, x= "timepoint_numeric", y = "mean_score", hue = "study")
+ax.set_ylabel("Mean persistence score per sample")
+ax.set_xlabel("Time")
+plt.tight_layout()
+plt.savefig("persistence_over_time.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+sc.pl.violin(carpall, keys = "persistence_score", groupby="leiden_res_0.7", stripplot=False)
+```
+
+```{python}
+counts = pd.crosstab(
+    carpall.obs["leiden_res_0.4"],
+    carpall.obs["Timepoint_bin"]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "leiden_res_0.4", var_name = "Timepoint_bin", value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="leiden_res_0.4", y="percent", color="Timepoint_bin")
+    .scale(color="tab20")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+p
+```
+
+```{python}
+sc.pl.umap(carpall, color = ["leiden_res_0.4", "LYZ", "CD8A", "TCF7", "CCR7", "SELL", "TIGIT", "TRDC", "GNLY", "LTB", "CD27", "IL7R", "CD28"], cmap="rocket_r")
+```
+
+```{python}
+import celltypist
+from celltypist import models
+
+models.download_models(
+    force_update=True, 
+    model=["Immune_All_High.pkl"]
+)
+model_immune_high = models.Model.load(model="Immune_All_High.pkl")
+
+models.download_models(
+    force_update=True, 
+    model=["Immune_All_Low.pkl"]
+)
+model_immune_low = models.Model.load(model="Immune_All_Low.pkl")
+
+models.download_models(
+    force_update=True, 
+    model=["COVID19_HumanChallenge_Blood.pkl"]
+)
+model_covid = models.Model.load(model="COVID19_HumanChallenge_Blood.pkl")
+```
+
+```{python}
+pred_high = celltypist.annotate(
+    carpall,
+    model="Immune_All_High.pkl"
+)
+
+ad_high = pred_high.to_adata(insert_conf=True)
+
+carpall.obs["celltypist_high_label"] = ad_high.obs["predicted_labels"]
+carpall.obs["celltypist_high_score"] = ad_high.obs["conf_score"]
+
+pred_low = celltypist.annotate(
+    carpall,
+    model="Immune_All_Low.pkl"
+)
+
+ad_low = pred_low.to_adata(insert_conf=True)
+
+carpall.obs["celltypist_low_label"] = ad_low.obs["predicted_labels"]
+carpall.obs["celltypist_low_score"] = ad_low.obs["conf_score"]
+
+pred_covid = celltypist.annotate(
+    carpall,
+    model="COVID19_HumanChallenge_Blood.pkl"
+)
+
+ad_covid = pred_covid.to_adata(insert_conf=True)
+
+carpall.obs["celltypist_covid_label"] = ad_covid.obs["predicted_labels"]
+carpall.obs["celltypist_covid_score"] = ad_covid.obs["conf_score"]
+```
+
+```{python}
+fig = sc.pl.umap(carpall, color=["celltypist_covid_label"], 
+wspace=1,show=False, size = 1, ncols=1,frameon = False, return_fig = True)
+fig.set_size_inches(25, 10)
+print(fig.get_size_inches())
+fig.savefig("carpal_integrated_celltypist.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+label_props = carpall.obs["celltypist_covid_label"].value_counts(normalize=True)
+
+major_labels = label_props[label_props >= 0.01].index
+
+labels = carpall.obs["celltypist_covid_label"].astype(str)
+
+carpall.obs["celltypist_covid_label_1pct"] = labels.where(
+    labels.isin(major_labels),
+    "Other"
+)
+```
+
+```{python}
+fig = sc.pl.umap(carpall, color=["celltypist_covid_label_1pct", "celltypist_covid_score"], 
+wspace=0.8,show=False, size = 5, ncols=1,frameon = False, return_fig = True, palette = "tab20")
+fig.set_size_inches(5, 8)
+print(fig.get_size_inches())
+fig.savefig("carpall_integrated_celltypist_covid_1pct.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+sc.pl.dotplot(carpall, var_names = ["CD8A", "CD4", "CD40LG", "TRAC", "TRBC1", "TRDC", "TCF7", "CCR7", "SELL", "IL7R", "LEF1", "LTB", "CD27", "CD28", "GNLY", "KLRG1", "GZMK", "GZMB", "CX3CR1", "MKI67", "TOP2A"],cmap="rocket_r", groupby="leiden_res_0.4")
+```
+
+```{python}
+label_dict = {
+    "0":"Early: CD8 TCM",
+    "1":"Early: CD8 TEM",
+    "2":"Cycling T",
+    "3":"Late: CD8/DN T",
+    "4":"Early: CD8 TEMRA",
+    "5":"Early: CD8 TCM",
+    "6":"Late: DN T",
+    "7":"Mid: DN T",
+    "8":"Early CD4 TCM",
+    "9":"Early: gdT",
+    "10":"Mid: CD8 TEM",
+    "11":"Early: CD8 TEMRA",
+    "12": "Early: CD8 TCM",
+    "13": "Product",
+    "14": "Product",
+    "15": "Unknown"
+}
+
+carpall.obs["labels"] = (
+    carpall.obs["leiden_res_0.4"]
+    .map(label_dict)
+    .astype("category")
+)
+sc.tl.dendrogram(carpall, groupby="labels")
+```
+
+```{python}
+sc.pl.umap(carpall, color = "labels", show=False, frameon=False)
+```
+
+```{python}
+to_remove = ["Unknown", "Cycling T"]
+carpall = carpall[~carpall.obs["labels"].isin(to_remove)].copy()
+```
+
+```{python}
+sc.pl.umap(carpall, color = "labels", show=False, frameon=False, size = 5)
+fig = plt.gcf()
+fig.set_size_inches(10, 6)  # width, height in inches
+fig.savefig("umap_annotated_.png", dpi=300, bbox_inches="tight")
+plt.show()
+plt.close
+```
+
+```{python}
+#carpall.write_h5ad("carpall_scvi_integrated_annotated.h5ad")
+carpall = sc.read("carpall_scvi_integrated_annotated.h5ad")
+```
+
+```{python}
+sc.tl.embedding_density(carpall, groupby="time")
+order = ["Product", "Early", "Mid", "Late"]
+
+carpall.obs["time"] = pd.Categorical(
+    carpall.obs["time"],
+    categories=order,
+    ordered=True,
+)
+plt.close("all")
+fig = sc.pl.embedding_density(carpall, groupby="time", frameon=False, color_map = "rocket_r", return_fig=True, fg_dotsize=10, bg_dotsize=101,ncols=1)
+fig.set_size_inches(4, 10)
+print(fig.get_size_inches())
+fig.savefig("umap_density.png", dpi=300, bbox_inches="tight")
+plt.close
+```
+
+```{python}
+sc.pl.dotplot(carpall, var_names = ["CD8A", "CD4", "CD40LG", "TRAC", "TRBC1", "TRDC", "TCF7", "CCR7", "SELL", "IL7R", "LEF1", "LTB", "CD27", "CD28", "GNLY", "KLRG1", "GZMK", "GZMB", "CX3CR1"],cmap="rocket_r", groupby="labels")
+```
+
+```{python}
+variable = "Timepoint_bin"
+counts = pd.crosstab(
+    carpall.obs["labels"],
+    carpall.obs[variable]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "labels", var_name = variable, value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="labels", y="percent", color=variable)
+    .scale(color="tab20")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+p
+```
+
+# persistence score on annotated populations
+
+```{python}
+sc.tl.rank_genes_groups(
+    carpall, groupby="Timepoint_bin", method="wilcoxon", key_added="dea_timepoint"
+)
+
+sc.tl.filter_rank_genes_groups(
+    carpall,
+    min_in_group_fraction=0.25,
+    max_out_group_fraction=0.5,
+    key="dea_timepoint",
+    key_added="dea_timepoint_filtered",
+)
+
+degs = sc.get.rank_genes_groups_df(
+    carpall,
+    group=None,
+    key="dea_timepoint_filtered"
+)
+degs = degs.dropna(subset=["names"])
+degs.to_csv("integrated_timepoint_degs.csv", index=False)
+```
+
+```{python}
+late_degs = degs[degs["group"] == "Late"]
+late_degs = late_degs[late_degs["logfoldchanges"] >1.49]
+```
+
+```{python}
+persistence_score = list(late_degs.names)
+```
+
+```{python}
+sc.tl.score_genes(carpall, gene_list = persistence_score, score_name="persistence_score")
+```
+
+```{python}
+sc.pl.umap(carpall, color = "persistence_score", cmap = "plasma_r", show=False, frameon=False)
+fig = plt.gcf()
+fig.set_size_inches(6, 4)  # width, height in inches
+fig.savefig("umap+persistence_score.png", dpi=300, bbox_inches="tight")
+plt.show()
+plt.close
+```
+
+```{python}
+order = ["Product", "d14", "Early", "d150", "Mid", "Late"]
+
+carpall.obs["Timepoint_bin"] = pd.Categorical(
+    carpall.obs["Timepoint_bin"],
+    categories=order,
+    ordered=True,
+)
+```
+
+```{python}
+sc.pl.violin(carpall, keys = "persistence_score", groupby = "Timepoint_bin", rotation = 90, size=0, palette = "RdBu", show=False)
+fig = plt.gcf()
+fig.set_size_inches(8, 4)  # width, height in inches
+fig.savefig("persistence_score_time_violins.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+sample_means = (
+    carpall.obs
+    .groupby(["sample_id", "Patient", "Timepoint_bin", "study"], observed=True)
+    .agg(
+        mean_score=("persistence_score", "mean"),
+        median_score=("persistence_score", "median"),
+        n_cells=("persistence_score", "size"),
+    )
+    .reset_index()
+)
+
+print(sample_means.sort_values(["Patient", "Timepoint_bin"]))
+```
+
+```{python}
+sample_means_all = (
+    carpall.obs
+    .groupby(["sample_id", "Patient", "Timepoint_bin", "study"], observed=True)
+    .agg(
+        mean_score=("persistence_score", "mean"),
+        median_score=("persistence_score", "median"),
+        n_cells=("persistence_score", "size"),
+    )
+    .reset_index()
+)
+
+min_cells = 50
+sample_means = sample_means_all[sample_means_all["n_cells"] >= min_cells].copy()
+print(sample_means_all.loc[sample_means_all["n_cells"] < min_cells, ["sample_id", "n_cells"]])
+```
+
+```{python}
+order = ["Product", "d14", "Early", "d150", "Mid", "Late"]
+sample_means["Timepoint_bin"] = pd.Categorical(
+    sample_means["Timepoint_bin"], categories=order, ordered=True
+)
+plt.close("all")
+fig, ax = plt.subplots(figsize=(6, 4))
+sns.boxplot(data=sample_means, x="Timepoint_bin", y="mean_score",
+            color="white", fliersize=0, ax=ax, hue="Timepoint_bin", palette="RdBu")
+sns.stripplot(data=sample_means, x="Timepoint_bin", y="mean_score",
+              color="black", size=7, ax=ax)
+ax.set_ylabel("Mean persistence score per sample")
+ax.set_xlabel("Timepoint")
+ax.legend(title="Patient", bbox_to_anchor=(1.02, 1), loc="upper left")
+plt.tight_layout()
+plt.savefig("persistence_per_sample.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+sc.pl.rank_genes_groups_heatmap(
+    carpall,
+    groupby="Timepoint_bin",
+    key="dea_timepoint_filtered",
+    standard_scale = "var",
+    cmap="rocket_r",
+    var_names=persistence_score,
+    show=False
+)
+fig = plt.gcf()
+fig.set_size_inches(8, 8)  # width, height in inches
+fig.savefig("persistence_score_time_heatmap.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
