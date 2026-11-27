@@ -14,6 +14,9 @@ import scvelo as scv
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import petsc4py
+import scipy
+
 
 sc.set_figure_params(frameon=False, dpi=100)
 cr.settings.logging_level = "INFO"
@@ -21,7 +24,7 @@ cr.settings.logging_level = "INFO"
 
 ```{python}
 carpall = sc.read("carpall_scvi_integrated_annotated.h5ad")
-to_remove = ["Early: gdT", "Product"]
+to_remove = ["Early: gdT", "Product", "Early CD4 TCM"]
 carpall = carpall[~carpall.obs["labels"].isin(to_remove)].copy()
 pt_df = pd.read_csv("carpall_integrated_slingshot_average_pseudotime.csv", index_col="cell")
 carpall.obs["avg_pseudotime"] = pt_df["avg_pseudotime"].reindex(carpall.obs_names)
@@ -30,9 +33,23 @@ sc.pl.umap(carpall, color="avg_pseudotime", legend_loc="on data")
 carpall
 ```
 
+```{python}
+carpall.obs["avg_pseudotime_scaled"] = (
+    (carpall.obs["avg_pseudotime"] - carpall.obs["avg_pseudotime"].min()) /
+    (carpall.obs["avg_pseudotime"].max() - carpall.obs["avg_pseudotime"].min())
+)
+```
 
 ```{python}
-pk = cr.kernels.PseudotimeKernel(carpall, time_key="avg_pseudotime")
+sc.pl.umap(carpall, color="avg_pseudotime_scaled", legend_loc="on data")
+carpall
+```
+
+
+```{python}
+carpall = carpall[carpall.obs["avg_pseudotime_scaled"].notna()].copy()
+print(carpall.n_obs, "cells remaining")
+pk = cr.kernels.PseudotimeKernel(carpall, time_key="avg_pseudotime_scaled")
 pk.compute_transition_matrix(threshold_scheme="soft")
 ```
 
@@ -69,7 +86,13 @@ g.plot_macrostates(which="terminal", legend_loc="right", s=50)
 ```
 
 ```{python}
-g.set_initial_states(states=["Early: CD8 TCM_1"], allow_overlap = True)
+plt.close("all")
+g.set_terminal_states(states=["Early: CD8 TCM/TEM", "Early: CD8 TEMRA", "Early: TEM/Exhausted", "Mid: CD8 TEM", "Mid: DN T", "Late: DN T"])
+g.plot_macrostates(which="terminal", legend_loc="right", s=50)
+```
+
+```{python}
+g.set_initial_states(states=["Early: CD8 TCM"])
 g.plot_macrostates(which="initial", s=50)
 ```
 
@@ -78,6 +101,7 @@ g.plot_macrostates(which="initial", s=50)
 carpall.obs["macrostates"] = g.macrostates
 carpall.uns["macrostates_colors"] = g.macrostates_memberships.colors
 ```
+
 
 ```{python}
 g.compute_fate_probabilities(use_petsc=False)
@@ -99,9 +123,29 @@ cr.pl.circular_projection(carpall, keys=["labels"], legend_loc="right")
 ```{python}
 cr.pl.aggregate_fate_probabilities(
     carpall,
-    mode="violin",
-    lineages=["Late: DN T_1"],
+    mode="violin", size = 0,
+    lineages=["Late: DN T"],
     cluster_key="labels")
+```
+
+```{python}
+sc.tl.paga(carpall, groups = "labels")
+cr.pl.aggregate_fate_probabilities(
+    carpall,
+    mode="paga",
+    lineages=["Late: DN T"],
+    cluster_key="labels")
+```
+
+```{python}
+plt.figure()
+cr.pl.aggregate_fate_probabilities(
+    carpall,
+    mode="heatmap",
+    lineages=["Early: CD8 TCM/TEM", "Early: CD8 TEMRA", "Early: TEM/Exhausted", "Mid: CD8 TEM", "Late: DN T"],
+    cluster_key="labels")
+
+plt.savefig("cellrank_fates_heatmap.png", dpi=300)
 ```
 
 ```{python}
@@ -114,8 +158,8 @@ cr.pl.aggregate_fate_probabilities(
 
 ```{python}
 # compute driver genes
-early_driver_df = g.compute_lineage_drivers(lineages=["Late: DN T_1", "Mid: CD8 TEM", "Early: CD8 TCM_1"],
-cluster_key="labels", clusters = ["Early: CD8 TCM", "Early: CD8 TEM"])
+early_driver_df = g.compute_lineage_drivers(lineages=["Early: CD8 TCM/TEM", "Early: CD8 TEMRA", "Early: TEM/Exhausted", "Mid: CD8 TEM", "Late: DN T"],
+cluster_key="labels", clusters = ["Early: CD8 TCM"])
 
 
 # compute mean gene expression across all cells
@@ -125,8 +169,8 @@ carpall.var["mean expression"] = np.asarray(carpall.X.mean(axis=0)).flatten()
 ```{python}
 # visualize in a scatter plot
 g.plot_lineage_drivers_correlation(
-    lineage_y="Late: DN T_1",
-    lineage_x="Mid: CD8 TEM",
+    lineage_y="Late: DN T",
+    lineage_x="Early: CD8 TCM/TEM",
     adjust_text=True,
     color="mean expression",
     #gene_sets = genes_oi,
@@ -162,7 +206,7 @@ plt.close("all")
 fig, ax = plt.subplots(figsize=(6, 5))
 sc = ax.scatter(
     x=early_df_expr["Late: DN T_1_corr"],
-    y=early_df_expr["Mid: CD8 TEM_corr"],
+    y=early_df_expr["Early: CD8 TCM_1_corr"],
     c=early_df_expr["log1p mean expression"],
     cmap="magma",
     s=5,
@@ -178,3 +222,146 @@ ax.set_title("Driver gene correlations (mean expression >= 0.1)")
 plt.tight_layout()
 plt.show()
 ```
+
+```{python}
+early_df_expr = early_df_expr.reset_index()
+```
+
+```{python}
+candidate_drivers = early_df_expr[
+    (early_df_expr["Late: DN T_1_corr"] > 0.4) &
+    (early_df_expr["Early: CD8 TCM_1_corr"] < -0.01)
+]
+candidate_drivers = candidate_drivers.reset_index()
+candidate_names = list(candidate_drivers["index"])
+candidate_names
+```
+
+# correlate driver gene expression with fate decision of cells
+
+```{python}
+# 1. Pull the raw matrix
+lineages_data = carpall.obsm["lineages_fwd"]
+
+# 2. Build the dataframe using the helper properties built into the Lineage object
+lineage_fate = pd.DataFrame(
+    lineages_data,
+    index=carpall.obs_names,   # Assign cell barcodes to rows
+    columns=lineages_data.names # Pull column names directly from the object
+)
+```
+
+```{python}
+# Flatten the list if it was accidentally nested
+# (e.g., if candidate_names was already a list, writing [candidate_names] nested it)
+genes_of_interest = candidate_names if isinstance(candidate_names, list) else list(candidate_names)
+
+# Alternatively, if you manually typed them, make sure it looks like this:
+# genes_of_interest = ["Gene1", "Gene2", "Gene3"]
+
+# Loop through and add each gene as a new column
+for gene in genes_of_interest:
+    if gene in carpall.var_names:
+        lineage_fate[gene] = carpall.obs_vector(gene)
+    else:
+        print(f"Warning: {gene} not found in dataset columns (var_names)")
+```
+
+```{python}
+lineage_fate["labels"] = carpall.obs["labels"]
+```
+
+```{python}
+import seaborn as sns
+```
+
+```{python}
+target_cells = ["Early: CD8 TCM", "Early CD8 TEM"]
+early_cells = lineage_fate[lineage_fate["labels"].isin(target_cells)]
+```
+
+```{python}
+plt.close("all")
+sns.lmplot(
+    data=early_cells, x="Late: DN T_1", y="TMSB10", palette="muted", ci=None,
+    height=4, scatter_kws={"s": 1, "alpha": 1}
+)
+```
+
+```{python}
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# 1. Pull the raw matrix
+lineages_data = carpall.obsm["lineages_fwd"]
+
+# 2. Build the initial single-cell dataframe
+lineage_fate = pd.DataFrame(
+    lineages_data,
+    index=carpall.obs_names,
+    columns=lineages_data.names
+)
+
+# 3. Add metadata needed for grouping (e.g., patient ID)
+# Replace 'patient_id' with the exact column name used in your carpall.obs
+lineage_fate["patient_id"] = carpall.obs["Patient"]
+
+# 4. Add genes of interest
+genes_of_interest = candidate_names if isinstance(candidate_names, list) else list(candidate_names)
+for gene in genes_of_interest:
+    if gene in carpall.var_names:
+        lineage_fate[gene] = carpall.obs_vector(gene)
+    else:
+        print(f"Warning: {gene} not found in dataset columns (var_names)")
+
+# 5. AGGREGATE TO PATIENT LEVEL
+# This groups by patient and averages all numeric columns (fates and genes)
+patient_level_df = lineage_fate.groupby("patient_id").mean().reset_index()
+
+# 6. Plot at the Patient Level
+plt.close("all")
+sns.lmplot(
+    data=patient_level_df,  # Using the aggregated patient dataframe
+    x="Late: DN T_1",
+    y="TMSB10",
+    height=4,
+    scatter_kws={"s": 100, "alpha": 1}  # Increased point size since there are fewer dots
+)
+```
+
+```{python}
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy import stats
+
+goi = "BTF3"
+fate = "Mid: CD8 TEM"
+
+# Generate the plot
+plt.close("all")
+g = sns.lmplot(
+    data=patient_level_df,
+    x=fate,
+    y=goi,
+    height=4,
+    scatter_kws={"s": 50, "alpha": 1}
+)
+
+# Calculate stats for annotation
+clean_df = patient_level_df[[fate, goi]].dropna()
+rho, p_val = stats.spearmanr(clean_df[fate], clean_df[goi])
+
+# Create text string - properly escaping the LaTeX code
+stats_text = f"$\\rho$ = {rho:.2f}\n$p$ = {p_val:.3e}"
+
+# Add text box to the plot
+ax = g.ax # Get the underlying matplotlib axis
+ax.text(
+    0.05, 0.95, stats_text, 
+    transform=ax.transAxes, 
+    verticalalignment='top',
+    bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.5)
+)
+```
+

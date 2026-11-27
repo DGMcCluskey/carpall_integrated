@@ -635,13 +635,42 @@ plt.close
 ```
 
 ```{python}
-sc.pl.dotplot(carpall, var_names = ["CD8A", "CD4", "CD40LG", "TRAC", "TRBC1", "TRDC", "TCF7", "CCR7", "SELL", "IL7R", "LEF1", "LTB", "CD27", "CD28", "GNLY", "KLRG1", "GZMK", "GZMB", "CX3CR1", "MKI67", "TOP2A"],cmap="rocket_r", groupby="leiden_res_0.4")
+sc.pl.dotplot(carpall, var_names = ["CD8A", "CD4", "CD40LG", "TRAC", "TRBC1", "TRDC", "TCF7", "CCR7", "SELL", "LRRN3", "IL7R", "LEF1", "LTB", "CD27", "CD28", "GNLY", "KLRG1", "GZMK", "GZMB", "CX3CR1", "MKI67", "TOP2A", "TOX", "LAG3", "HAVCR2", "FGFBP2", "ZEB2"],cmap="rocket_r", groupby="leiden_res_0.4", standard_scale="var")
+```
+
+```{python}
+variable = "celltypist_covid_label_1pct"
+counts = pd.crosstab(
+    carpall.obs["leiden_res_0.4"],
+    carpall.obs[variable]
+)
+props = counts.div(counts.sum(axis=1), axis=0)
+props= props * 100
+props.head()
+```
+
+```{python}
+props = props.reset_index()
+props = props.melt(id_vars = "leiden_res_0.4", var_name = variable, value_name = "percent")
+```
+
+```{python}
+p = (
+    so.Plot(props, x="leiden_res_0.4", y="percent", color=variable)
+    .scale(color="tab20")
+    .add(so.Bar(), so.Stack())
+    .theme({
+        "axes.facecolor": "w", 
+        "axes.edgecolor": "grey"})
+    .layout(size=(10,6))
+)
+p
 ```
 
 ```{python}
 label_dict = {
-    "0":"Early: CD8 TCM",
-    "1":"Early: CD8 TEM",
+    "0":"Early: CD8 TCM/TEM",
+    "1":"Early: TEM/Exhausted",
     "2":"Cycling T",
     "3":"Late: CD8/DN T",
     "4":"Early: CD8 TEMRA",
@@ -685,6 +714,9 @@ plt.close
 ```
 
 ```{python}
+for key in ["dea_timepoint", "dea_timepoint_filtered"]:
+    if key in carpall.uns:
+        del carpall.uns[key]
 #carpall.write_h5ad("carpall_scvi_integrated_annotated.h5ad")
 carpall = sc.read("carpall_scvi_integrated_annotated.h5ad")
 ```
@@ -699,7 +731,7 @@ carpall.obs["time"] = pd.Categorical(
     ordered=True,
 )
 plt.close("all")
-fig = sc.pl.embedding_density(carpall, groupby="time", frameon=False, color_map = "rocket_r", return_fig=True, fg_dotsize=10, bg_dotsize=101,ncols=1)
+fig = sc.pl.embedding_density(carpall, groupby="time", frameon=False, color_map = "rocket_r", return_fig=True, fg_dotsize=5, bg_dotsize=101,ncols=1)
 fig.set_size_inches(4, 10)
 print(fig.get_size_inches())
 fig.savefig("umap_density.png", dpi=300, bbox_inches="tight")
@@ -707,7 +739,7 @@ plt.close
 ```
 
 ```{python}
-sc.pl.dotplot(carpall, var_names = ["CD8A", "CD4", "CD40LG", "TRAC", "TRBC1", "TRDC", "TCF7", "CCR7", "SELL", "IL7R", "LEF1", "LTB", "CD27", "CD28", "GNLY", "KLRG1", "GZMK", "GZMB", "CX3CR1"],cmap="rocket_r", groupby="labels")
+sc.pl.dotplot(carpall, var_names = ["CD8A", "CD4", "CD40LG", "TRAC", "TRBC1", "TRDC", "TCF7", "BACH2", "CCR7", "SELL", "LRRN3", "IL7R", "LEF1", "LTB", "CD27", "CD28", "GNLY", "KLRG1", "GZMK", "GZMB", "CX3CR1", "MKI67", "TOP2A", "TOX", "LAG3", "HAVCR2", "CTLA4", "CCL5"],cmap="rocket_r", groupby="labels")
 ```
 
 ```{python}
@@ -727,16 +759,25 @@ props = props.melt(id_vars = "labels", var_name = variable, value_name = "percen
 ```
 
 ```{python}
-p = (
+import matplotlib.pyplot as plt
+
+fig = plt.figure(figsize=(10, 6))
+
+(
     so.Plot(props, x="labels", y="percent", color=variable)
     .scale(color="tab20")
     .add(so.Bar(), so.Stack())
     .theme({
-        "axes.facecolor": "w", 
+        "axes.facecolor": "w",
         "axes.edgecolor": "grey"})
-    .layout(size=(10,6))
+    .on(fig)
+    .plot()
 )
-p
+
+for ax in fig.axes:
+    ax.tick_params(axis="x", labelrotation=90)
+
+fig
 ```
 
 # persistence score on annotated populations
@@ -870,5 +911,28 @@ sc.pl.rank_genes_groups_heatmap(
 fig = plt.gcf()
 fig.set_size_inches(8, 8)  # width, height in inches
 fig.savefig("persistence_score_time_heatmap.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+sc.pl.violin(carpall, keys = "persistence_score", groupby = "labels", stripplot=False, rotation = 90, show = False)
+fig = plt.gcf()
+fig.set_size_inches(10, 4)  # width, height in inches
+fig.savefig("persistence_score_labels_violins.png", dpi=300, bbox_inches="tight")
+plt.show()
+```
+
+```{python}
+scores = carpall.obs["persistence_score"]
+
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.hist(scores, bins=100, color="grey", edgecolor="none")
+
+for cutoff in [0.05, 0.35, 0.7]:
+    ax.axvline(cutoff, color="red", linestyle="--", linewidth=1)
+
+ax.set_xlabel("Persistence score")
+ax.set_ylabel("Number of cells")
+ax.set_title("Persistence score distribution")
 plt.show()
 ```

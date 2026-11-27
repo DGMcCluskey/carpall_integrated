@@ -22,7 +22,13 @@ keep <- !(as.character(adata$labels) %in% exclude)
 adata <- adata[, keep]
 adata$labels <- droplevels(adata$labels)
 
+exclude <- c("Product")
+keep <- !(as.character(adata$time) %in% exclude)
+adata <- adata[, keep]
+adata$time <- droplevels(adata$time)
+
 table(adata$labels)
+table(adata$time)
 ```
 
 ```{r}
@@ -46,9 +52,10 @@ sce <- slingshot(
   reducedDim = "UMAP",
   start.clus = c("Early: CD8 TCM"),
   allow.breaks=T,
-  omega=T,
-  stretch=1,
-  approx_points=300
+  omega=F,
+  stretch=0,
+  approx_points=300,
+  extend="n"
 )
 ```
 
@@ -197,6 +204,21 @@ avg_df <- data.frame(
 )
 
 write.csv(avg_df, file = "carpall_integrated_slingshot_average_pseudotime.csv", row.names = FALSE)
+```
+
+```{r}
+cell_df$avg_pseudotime <- avg_df$avg_pseudotime[match(rownames(cell_df), avg_df$cell)]
+```
+
+```{r}
+ggplot(cell_df, aes(UMAP_1, UMAP_2)) +
+  geom_point(aes(colour = avg_pseudotime), size = 1, alpha = 0.8, shape = 20) +
+  scale_colour_viridis_c(option = "plasma", na.value = "grey85", name = "avg\npseudotime") +
+  theme_classic()
+```
+
+```{r}
+
 ```
 
 
